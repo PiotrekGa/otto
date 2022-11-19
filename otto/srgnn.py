@@ -46,7 +46,7 @@ class GraphDataset(Dataset):
     def process(self):
         raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
         raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
-        sessions = pd.read_parquet(raw_data_file1).iloc[:2000, :]
+        sessions = pd.read_parquet(raw_data_file1)
         labels = pd.read_json(raw_data_file2, lines=True).set_index(
             'session')['labels']
 
