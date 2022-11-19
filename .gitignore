@@ -127,3 +127,14 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+# Files
+*.csv
+*.parquet
+*.jsonl
+*.pt
+*.pkl
+*.lock
+.DS_Store
+events.out*

@@ -10,7 +10,7 @@ import os
 
 
 import torch
-from torch_geometric.data import Data, InMemoryDataset, DataListLoader
+from torch_geometric.data import Data, InMemoryDataset
 from torch_geometric.utils import undirected
 from torch_geometric.nn.models import Node2Vec
 

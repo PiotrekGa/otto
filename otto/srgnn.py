@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 
 import torch
-from torch_geometric.data import Data, InMemoryDataset, DataLoader
+from torch_geometric.data import Data, Dataset, DataLoader
 from torch_geometric.nn.conv import MessagePassing
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,7 +25,7 @@ class CONFIG:
     num_items = 1855603
 
 
-class GraphDataset(InMemoryDataset):
+class GraphDataset(Dataset):
     def __init__(self, root, file_name, transform=None, pre_transform=None):
         self.file_name = file_name
         super().__init__(root, transform, pre_transform)
