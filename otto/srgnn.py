@@ -1,11 +1,12 @@
 import copy
+import os.path as osp
 
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
 import torch
-from torch_geometric.data import Data, Dataset, DataLoader, InMemoryDataset
+from torch_geometric.data import Data, Dataset, DataLoader
 from torch_geometric.nn.conv import MessagePassing
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,11 +26,11 @@ class CONFIG:
     num_items = 1855603
 
 
-class GraphDataset(InMemoryDataset):
+class GraphDataset(Dataset):
     def __init__(self, root, file_name, transform=None, pre_transform=None):
         self.file_name = file_name
+        self.processed_file_names_ = []
         super().__init__(root, transform, pre_transform)
-        self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
     def raw_file_names(self):
@@ -37,7 +38,7 @@ class GraphDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return [f'{self.file_name}.pt']
+        return self.processed_file_names_
 
     def download(self):
         pass
@@ -45,7 +46,7 @@ class GraphDataset(InMemoryDataset):
     def process(self):
         raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
         raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
-        sessions = pd.read_parquet(raw_data_file1).iloc[:1000, :]
+        sessions = pd.read_parquet(raw_data_file1).iloc[:2000, :]
         labels = pd.read_json(raw_data_file2, lines=True).set_index(
             'session')['labels']
 
@@ -56,7 +57,6 @@ class GraphDataset(InMemoryDataset):
         del ses_len
         sessions.dropna(inplace=True)
         sessions = sessions.groupby('session')['aid'].apply(list)
-        data_list = []
 
         for idx in tqdm(sessions.index):
             session, y = sessions[idx], labels[idx].get('clicks', None)
@@ -66,10 +66,18 @@ class GraphDataset(InMemoryDataset):
                 edge_index = torch.tensor(edge_index, dtype=torch.long)
                 x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
                 y = torch.tensor([y], dtype=torch.long)
-                data_list.append(Data(x=x, edge_index=edge_index, y=y))
+                data = Data(x=x, edge_index=edge_index, y=y)
+                file_name = f'{self.file_name}_{idx}.pt'
+                self.processed_file_names_.append(file_name)
+                torch.save(data, osp.join(self.processed_dir, file_name))
 
-        data, slices = self.collate(data_list)
-        torch.save((data, slices), self.processed_paths[0])
+    def len(self):
+        return len(self.processed_file_names)
+
+    def get(self, idx):
+        data = torch.load(osp.join(self.processed_dir,
+                          f'{self.file_name}_{idx}.pt'))
+        return data
 
 
 class GatedSessionGraphConv(MessagePassing):
