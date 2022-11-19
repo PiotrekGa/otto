@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 
 import torch
-from torch_geometric.data import Data, Dataset, DataLoader
+from torch_geometric.data import Data, Dataset, DataLoader, InMemoryDataset
 from torch_geometric.nn.conv import MessagePassing
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,7 +25,7 @@ class CONFIG:
     num_items = 1855603
 
 
-class GraphDataset(Dataset):
+class GraphDataset(InMemoryDataset):
     def __init__(self, root, file_name, transform=None, pre_transform=None):
         self.file_name = file_name
         super().__init__(root, transform, pre_transform)
@@ -33,7 +33,7 @@ class GraphDataset(Dataset):
 
     @property
     def raw_file_names(self):
-        return [f'{self.file_name}.parquet']
+        return [f'{self.file_name}.parquet', f'{self.file_name}_labels.jsonl']
 
     @property
     def processed_file_names(self):
@@ -43,8 +43,11 @@ class GraphDataset(Dataset):
         pass
 
     def process(self):
-        raw_data_file = f'{self.raw_dir}/{self.raw_file_names[0]}'
-        sessions = pd.read_parquet(raw_data_file)
+        raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
+        raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
+        sessions = pd.read_parquet(raw_data_file1).iloc[:1000, :]
+        labels = pd.read_json(raw_data_file2, lines=True).set_index(
+            'session')['labels']
 
         sessions = sessions.loc[sessions.type == 0, ['session', 'aid']]
         ses_len = sessions.session.value_counts()
@@ -55,14 +58,15 @@ class GraphDataset(Dataset):
         sessions = sessions.groupby('session')['aid'].apply(list)
         data_list = []
 
-        for session in tqdm(sessions):
-            session, y = session[:-1], session[-1]
-            codes, uniques = pd.factorize(session)
-            edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
-            edge_index = torch.tensor(edge_index, dtype=torch.long)
-            x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
-            y = torch.tensor([y], dtype=torch.long)
-            data_list.append(Data(x=x, edge_index=edge_index, y=y))
+        for idx in tqdm(sessions.index):
+            session, y = sessions[idx], labels[idx].get('clicks', None)
+            if y:
+                codes, uniques = pd.factorize(session)
+                edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+                edge_index = torch.tensor(edge_index, dtype=torch.long)
+                x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
+                y = torch.tensor([y], dtype=torch.long)
+                data_list.append(Data(x=x, edge_index=edge_index, y=y))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
