@@ -21,19 +21,19 @@ def jsonl_to_df(path):
                 aids.append(event['aid'])
                 tss.append(int(event['ts'] / 1000))
                 types.append(TYPE2ID[event['type']])
-        
-    df = pd.DataFrame(data={'session': sessions, 'aid': aids, 'ts': tss, 'type': types}, 
+
+    df = pd.DataFrame(data={'session': sessions, 'aid': aids, 'ts': tss, 'type': types},
                       dtype=np.int32)
     df['type'] = df['type'].astype(np.uint8)
     return df
 
 
 def main():
-    files = ['test', 'train', 'valid__test', 'valid__train']
+    files = ['valid1__test', 'valid1__train']
     for file in files:
         print(f'processing {file}')
         path_in = f'../data/{file}.jsonl'
-        path_out = f'../data/{file}.parquet'
+        path_out = f'../data/raw/{file}.parquet'
         df = jsonl_to_df(path_in)
         df.to_parquet(path_out, index=False)
 
