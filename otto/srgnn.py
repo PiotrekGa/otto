@@ -4,19 +4,32 @@ import os.path as osp
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+from datetime import datetime
 
 import torch
-from torch_geometric.data import Data, Dataset, DataLoader
+from torch_geometric.data import Data, InMemoryDataset
+from torch_geometric.loader import DataLoader
 from torch_geometric.nn.conv import MessagePassing
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils import data
+
+from torch.utils.tensorboard.summary import hparams
+from torch.utils.tensorboard import SummaryWriter
+
+
+timestamp = str(datetime.now())[:19].replace(
+    '-', '').replace(':', '').replace(' ', '_')
 
 
 class CONFIG:
+
+    # tensorboard
+    log_dir = f'runs/experiment{timestamp}'
+    comment = ''
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    batch_size = 100
+    batch_size = 128
     hidden_dim = 32
     epochs = 100
     l2_penalty = 0.00001
@@ -26,11 +39,29 @@ class CONFIG:
     num_items = 1855603
 
 
-class GraphDataset(Dataset):
+class PatchedSummaryWriter(SummaryWriter):
+    def add_hparams(self, hparam_dict, metric_dict):
+        torch._C._log_api_usage_once("tensorboard.logging.add_hparams")
+        if type(hparam_dict) is not dict or type(metric_dict) is not dict:
+            raise TypeError(
+                'hparam_dict and metric_dict should be dictionary.')
+        exp, ssi, sei = hparams(hparam_dict, metric_dict)
+
+        logdir = self._get_file_writer().get_logdir()
+
+        with SummaryWriter(log_dir=logdir) as w_hp:
+            w_hp.file_writer.add_summary(exp)
+            w_hp.file_writer.add_summary(ssi)
+            w_hp.file_writer.add_summary(sei)
+            for k, v in metric_dict.items():
+                w_hp.add_scalar(k, v)
+
+
+class GraphInMemoryDataset(InMemoryDataset):
     def __init__(self, root, file_name, transform=None, pre_transform=None):
         self.file_name = file_name
-        self.processed_file_names_ = []
         super().__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
     def raw_file_names(self):
@@ -38,7 +69,7 @@ class GraphDataset(Dataset):
 
     @property
     def processed_file_names(self):
-        return self.processed_file_names_
+        return [f'{self.file_name}.pt']
 
     def download(self):
         pass
@@ -51,12 +82,8 @@ class GraphDataset(Dataset):
             'session')['labels']
 
         sessions = sessions.loc[sessions.type == 0, ['session', 'aid']]
-        ses_len = sessions.session.value_counts()
-        ses_len = ses_len[ses_len > 1]
-        sessions['len'] = sessions.session.map(ses_len)
-        del ses_len
-        sessions.dropna(inplace=True)
         sessions = sessions.groupby('session')['aid'].apply(list)
+        data_list = []
 
         for idx in tqdm(sessions.index):
             session, y = sessions[idx], labels[idx].get('clicks', None)
@@ -66,18 +93,10 @@ class GraphDataset(Dataset):
                 edge_index = torch.tensor(edge_index, dtype=torch.long)
                 x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
                 y = torch.tensor([y], dtype=torch.long)
-                data = Data(x=x, edge_index=edge_index, y=y)
-                file_name = f'{self.file_name}_{idx}.pt'
-                self.processed_file_names_.append(file_name)
-                torch.save(data, osp.join(self.processed_dir, file_name))
+                data_list.append(Data(x=x, edge_index=edge_index, y=y))
 
-    def len(self):
-        return len(self.processed_file_names)
-
-    def get(self, idx):
-        data = torch.load(osp.join(self.processed_dir,
-                          f'{self.file_name}_{idx}.pt'))
-        return data
+        data, slices = self.collate(data_list)
+        torch.save((data, slices), self.processed_paths[0])
 
 
 class GatedSessionGraphConv(MessagePassing):
@@ -166,12 +185,12 @@ class SRGNN(nn.Module):
 
 def train(config):
     # Prepare data pipeline
-    train_dataset = GraphDataset('../data', 'train')
+    train_dataset = GraphInMemoryDataset('.', 'valid1__test')
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=False,
                               drop_last=True)
-    val_dataset = GraphDataset('../data', 'test')
+    val_dataset = GraphInMemoryDataset('.', 'valid2__test')
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=False,
@@ -197,6 +216,20 @@ def train(config):
     best_acc = 0
     best_model = None
 
+    writer = PatchedSummaryWriter(
+        log_dir=config.log_dir, comment=config.comment)
+
+    writer.add_hparams(
+        {'batch_size': config.batch_size,
+         'hidden_dim': config.hidden_dim,
+         'epochs': config.epochs,
+         'l2_penalty': config.l2_penalty,
+         'weight_decay': config.weight_decay,
+         'step': config.step,
+         'lr': config.lr,
+         'num_items': config.num_items},
+        {})
+
     for epoch in range(config.epochs):
         total_loss = 0
         model.train()
@@ -211,6 +244,10 @@ def train(config):
             loss.backward()
             optimizer.step()
             total_loss += loss.item() * batch.num_graphs
+
+            writer.add_scalar('Loss/train', loss, epoch + 1)
+            writer.add_scalar('Params/lr', optimizer.state_dict()
+                              ['param_groups'][0]['lr'], epoch + 1)
 
         total_loss /= len(train_loader.dataset)
         losses.append(total_loss)
@@ -227,6 +264,11 @@ def train(config):
                 best_model = copy.deepcopy(model)
         else:
             test_accs.append(test_accs[-1])
+
+        writer.add_scalar('Accuracy/test_acc', test_acc, epoch + 1)
+        writer.add_scalar('Accuracy/top_k_acc', top_k_acc, epoch + 1)
+
+    writer.close()
 
     return test_accs, top_k_accs, losses, best_model, best_acc, val_loader
 

@@ -130,6 +130,10 @@ dmypy.json
 
 
 # Files
+data/
+raw/
+runs/
+runs_optuna/
 *.csv
 *.parquet
 *.jsonl
@@ -137,4 +141,3 @@ dmypy.json
 *.pkl
 *.lock
 .DS_Store
-events.out*
