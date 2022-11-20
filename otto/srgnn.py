@@ -185,12 +185,12 @@ class SRGNN(nn.Module):
 
 def train(config):
     # Prepare data pipeline
-    train_dataset = GraphInMemoryDataset('.', 'valid1__test')
+    train_dataset = GraphInMemoryDataset('data/', 'valid1__test')
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=False,
                               drop_last=True)
-    val_dataset = GraphInMemoryDataset('.', 'valid2__test')
+    val_dataset = GraphInMemoryDataset('data/', 'valid2__test')
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=False,
