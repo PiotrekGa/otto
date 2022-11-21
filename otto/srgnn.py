@@ -31,7 +31,7 @@ class CONFIG:
     comment = ''
 
     # dataset
-    ignore_idx = 1855606
+    ignore_idx = 1855607
     dataset_size = None
     use_events = True
 
@@ -44,7 +44,7 @@ class CONFIG:
     weight_decay = 0.1
     step = 15
     lr = 0.001
-    num_items = 1855607
+    num_items = 1855608
 
     if debug:
         dataset_size = 1000
@@ -71,10 +71,11 @@ class PatchedSummaryWriter(SummaryWriter):
 
 
 class GraphInMemoryDataset(InMemoryDataset):
-    def __init__(self, root, file_name, ignore_idx, use_events=True, dataset_size=None, transform=None, pre_transform=None):
+    def __init__(self, root, file_name, ignore_idx, use_events=True, use_subsessions=True, dataset_size=None, transform=None, pre_transform=None):
         self.file_name = file_name
         self.ignore_idx = ignore_idx
         self.use_events = use_events
+        self.use_subsessions = use_subsessions
         self.dataset_size = dataset_size
         super().__init__(root, transform, pre_transform)
         self.data, self.slices = torch.load(self.processed_paths[0])
@@ -97,6 +98,18 @@ class GraphInMemoryDataset(InMemoryDataset):
         result[1::2] = l2
         return result
 
+    @staticmethod
+    def create_sessions(df, threshold=30):
+        df['ts_lagged'] = df.ts.shift(1).fillna(df.ts).astype(np.int32)
+        df['session_lagged'] = df.session.shift(
+            1).fillna(df.ts).astype(np.int32)
+        df['difference'] = df.ts - df.ts_lagged
+        df['break_point'] = ((df.difference > threshold * 60)
+                             | (df.session != df.session_lagged)) * 2 - 1
+        df.drop(['ts_lagged', 'session_lagged',
+                'difference'], axis=1, inplace=True)
+        return df
+
     def process(self):
         raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
         raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
@@ -104,10 +117,17 @@ class GraphInMemoryDataset(InMemoryDataset):
         labels = pd.read_json(raw_data_file2, lines=True).set_index(
             'session')['labels'].iloc[:self.dataset_size]
 
+        sessions = self.create_sessions(sessions)
+
         sessions_aids = sessions.groupby('session')['aid'].apply(list)
         if self.use_events:
             sessions.type = sessions.type + 1855603
             sessions_type = sessions.groupby('session')['type'].apply(list)
+        if self.use_subsessions:
+            sessions.break_point = sessions.break_point * 1855606
+            sessions_subs = sessions.groupby(
+                'session')['break_point'].apply(list)
+
         del sessions
 
         labels_df = pd.DataFrame(list(labels), index=labels.index)
@@ -132,26 +152,23 @@ class GraphInMemoryDataset(InMemoryDataset):
         data_list = []
         for _, row in tqdm(series_with_events.iterrows(), total=series_with_events.shape[0]):
             idx = row['session']
-            if self.use_events:
-                if row['event_type'] == 'clicks':
-                    session, y_clicks, y_carts, y_orders = self.merge_two_lists(
-                        sessions_type[idx], sessions_aids[idx]), row['aid'], self.ignore_idx, self.ignore_idx
-                elif row['event_type'] == 'carts':
-                    session, y_clicks, y_carts, y_orders = self.merge_two_lists(
-                        sessions_type[idx], sessions_aids[idx]), self.ignore_idx, row['aid'], self.ignore_idx
-                elif row['event_type'] == 'orders':
-                    session, y_clicks, y_carts, y_orders = self.merge_two_lists(
-                        sessions_type[idx], sessions_aids[idx]), self.ignore_idx, self.ignore_idx, row['aid']
-            else:
-                if row['event_type'] == 'clicks':
-                    session, y_clicks, y_carts, y_orders = sessions_aids[
-                        idx], row['aid'], self.ignore_idx, self.ignore_idx
-                elif row['event_type'] == 'carts':
-                    session, y_clicks, y_carts, y_orders = sessions_aids[
-                        idx], self.ignore_idx, row['aid'], self.ignore_idx
-                elif row['event_type'] == 'orders':
-                    session, y_clicks, y_carts, y_orders = sessions_aids[
-                        idx], self.ignore_idx, self.ignore_idx, row['aid']
+
+            first_list = self.merge_two_lists(
+                sessions_type[idx], sessions_aids[idx])
+            second_list = self.merge_two_lists(
+                sessions_subs[idx], [-1] * len(sessions_subs[idx]))
+            long_list = self.merge_two_lists(second_list, first_list)
+            long_list = [i for i in long_list if i >= 0]
+
+            if row['event_type'] == 'clicks':
+                session, y_clicks, y_carts, y_orders = long_list, row[
+                    'aid'], self.ignore_idx, self.ignore_idx
+            elif row['event_type'] == 'carts':
+                session, y_clicks, y_carts, y_orders = long_list, self.ignore_idx, row[
+                    'aid'], self.ignore_idx
+            elif row['event_type'] == 'orders':
+                session, y_clicks, y_carts, y_orders = long_list, self.ignore_idx, self.ignore_idx, row[
+                    'aid']
 
             codes, uniques = pd.factorize(session)
             edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
@@ -291,9 +308,7 @@ def train(config):
                                           step_size=config.step,
                                           gamma=config.weight_decay)
     ignore_index = config.num_items - 1
-    criterion1 = nn.CrossEntropyLoss(ignore_index=ignore_index)
-    criterion2 = nn.CrossEntropyLoss(ignore_index=ignore_index)
-    criterion3 = nn.CrossEntropyLoss(ignore_index=ignore_index)
+    criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     # Train
     losses = []
@@ -329,9 +344,9 @@ def train(config):
             label_carts = batch.y_carts
             label_orders = batch.y_orders
 
-            loss = criterion1(pred[0], label_clicks) + \
-                criterion2(pred[1], label_carts) + \
-                criterion3(pred[2], label_orders)
+            loss = criterion(pred[0], label_clicks) + \
+                criterion(pred[1], label_carts) + \
+                criterion(pred[2], label_orders)
 
             loss.backward()
             print(loss)
@@ -339,12 +354,12 @@ def train(config):
             optimizer.step()
             total_loss += loss.item() * batch.num_graphs
 
-            writer.add_scalar('Loss/train', loss, epoch + 1)
-            writer.add_scalar('Params/lr', optimizer.state_dict()
-                              ['param_groups'][0]['lr'], epoch + 1)
-
         total_loss /= len(train_loader.dataset)
         losses.append(total_loss)
+
+        writer.add_scalar('Loss/train', loss, epoch + 1)
+        writer.add_scalar('Params/lr', optimizer.state_dict()
+                          ['param_groups'][0]['lr'], epoch + 1)
 
         scheduler.step()
 
