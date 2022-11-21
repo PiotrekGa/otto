@@ -28,15 +28,19 @@ class CONFIG:
     log_dir = f'runs/experiment{timestamp}'
     comment = ''
 
+    # dataset
+    use_events = True
+
+    # model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 128
     hidden_dim = 32
-    epochs = 100
+    epochs = 50
     l2_penalty = 0.00001
     weight_decay = 0.1
-    step = 30
+    step = 15
     lr = 0.001
-    num_items = 1855603
+    num_items = 1855607
 
 
 class PatchedSummaryWriter(SummaryWriter):
@@ -58,8 +62,9 @@ class PatchedSummaryWriter(SummaryWriter):
 
 
 class GraphInMemoryDataset(InMemoryDataset):
-    def __init__(self, root, file_name, transform=None, pre_transform=None):
+    def __init__(self, root, file_name, use_events=True, transform=None, pre_transform=None):
         self.file_name = file_name
+        self.use_events = use_events
         super().__init__(root, transform, pre_transform)
         self.data, self.slices = torch.load(self.processed_paths[0])
 
@@ -74,6 +79,13 @@ class GraphInMemoryDataset(InMemoryDataset):
     def download(self):
         pass
 
+    @staticmethod
+    def merge_two_lists(l1, l2):
+        result = [None]*(len(l1)+len(l2))
+        result[::2] = l1
+        result[1::2] = l2
+        return result
+
     def process(self):
         raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
         raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
@@ -81,19 +93,26 @@ class GraphInMemoryDataset(InMemoryDataset):
         labels = pd.read_json(raw_data_file2, lines=True).set_index(
             'session')['labels']
 
-        sessions = sessions.loc[sessions.type == 0, ['session', 'aid']]
-        sessions = sessions.groupby('session')['aid'].apply(list)
+        sessions_aids = sessions.groupby('session')['aid'].apply(list)
+        if self.use_events:
+            sessions.type = sessions.type + 1855603
+            sessions_type = sessions.groupby('session')['type'].apply(list)
+        del sessions
         data_list = []
 
-        for idx in tqdm(sessions.index):
-            session, y = sessions[idx], labels[idx].get('clicks', None)
-            if y:
-                codes, uniques = pd.factorize(session)
-                edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
-                edge_index = torch.tensor(edge_index, dtype=torch.long)
-                x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
-                y = torch.tensor([y], dtype=torch.long)
-                data_list.append(Data(x=x, edge_index=edge_index, y=y))
+        for idx in tqdm(sessions_aids.index):
+            if self.use_events:
+                session, y = self.merge_two_lists(
+                    sessions_type[idx], sessions_aids[idx]), labels[idx].get('clicks', 1855606)
+            else:
+                session, y = sessions_aids[idx], labels[idx].get(
+                    'clicks', 1855606)
+            codes, uniques = pd.factorize(session)
+            edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+            edge_index = torch.tensor(edge_index, dtype=torch.long)
+            x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
+            y = torch.tensor([y], dtype=torch.long)
+            data_list.append(Data(x=x, edge_index=edge_index, y=y))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -165,7 +184,7 @@ class SRGNN(nn.Module):
         q2 = self.W_2(v_i)
 
         # (6)
-        alpha = self.q(F.sigmoid(q1 + q2))
+        alpha = self.q(torch.sigmoid(q1 + q2))
         s_g_split = torch.split(alpha * v_i, sections)
 
         s_g = []
@@ -185,12 +204,14 @@ class SRGNN(nn.Module):
 
 def train(config):
     # Prepare data pipeline
-    train_dataset = GraphInMemoryDataset('data/', 'valid1__test')
+    train_dataset = GraphInMemoryDataset(
+        'data/', 'valid1__test', use_events=config.use_events)
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=False,
                               drop_last=True)
-    val_dataset = GraphInMemoryDataset('data/', 'valid2__test')
+    val_dataset = GraphInMemoryDataset(
+        'data/', 'valid2__test', use_events=config.use_events)
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=False,
@@ -206,7 +227,7 @@ def train(config):
     scheduler = optim.lr_scheduler.StepLR(optimizer,
                                           step_size=config.step,
                                           gamma=config.weight_decay)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(ignore_index=1855606)
 
     # Train
     losses = []
