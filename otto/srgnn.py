@@ -47,9 +47,10 @@ class CONFIG:
     num_items = 1855608
 
     if debug:
-        dataset_size = 1000
-        batch_size = 64
-        epochs = 2
+        dataset_size = 200
+        batch_size = 16
+        epochs = 1
+        hidden_dim = 8
 
 
 class PatchedSummaryWriter(SummaryWriter):
@@ -344,12 +345,11 @@ def train(config):
             label_carts = batch.y_carts
             label_orders = batch.y_orders
 
-            loss = criterion(pred[0], label_clicks) + \
-                criterion(pred[1], label_carts) + \
-                criterion(pred[2], label_orders)
+            loss = 0.1 * criterion(pred[0], label_clicks) + \
+                0.3 * criterion(pred[1], label_carts) + \
+                0.6 * criterion(pred[2], label_orders)
 
             loss.backward()
-            print(loss)
 
             optimizer.step()
             total_loss += loss.item() * batch.num_graphs
@@ -364,22 +364,24 @@ def train(config):
         scheduler.step()
 
         if epoch % 1 == 0:
-            test_acc, top_k_acc = test(val_loader, model, is_validation=True)
-            print(test_acc)
-            test_accs.append(test_acc)
+            test_acc_clicks, test_acc_carts, test_acc_orders, top_k_acc = test(
+                val_loader, model, is_validation=True)
+            print(test_acc_clicks, test_acc_carts, test_acc_orders)
+            test_accs.append(test_acc_orders)
             top_k_accs.append(top_k_acc)
-            if test_acc > best_acc:
-                best_acc = test_acc
-                best_model = copy.deepcopy(model)
         else:
             test_accs.append(test_accs[-1])
 
-        writer.add_scalar('Accuracy/test_acc', test_acc, epoch + 1)
+        writer.add_scalar('Accuracy/test_acc_clicks',
+                          test_acc_clicks, epoch + 1)
+        writer.add_scalar('Accuracy/test_acc_carts', test_acc_carts, epoch + 1)
+        writer.add_scalar('Accuracy/test_acc_orders',
+                          test_acc_orders, epoch + 1)
         writer.add_scalar('Accuracy/top_k_acc', top_k_acc, epoch + 1)
 
     writer.close()
 
-    return test_accs, top_k_accs, losses, best_model, best_acc, val_loader
+    return test_accs, top_k_accs, losses, model, test_acc_orders, val_loader
 
 
 def test(loader, test_model, is_validation=False, save_model_preds=False, config=CONFIG):
@@ -387,45 +389,73 @@ def test(loader, test_model, is_validation=False, save_model_preds=False, config
 
     # Define K for Hit@K metrics.
     k = 20
-    correct = 0
+    correct_clicks = 0
+    correct_carts = 0
+    correct_orders = 0
     top_k_correct = 0
 
     for _, data in enumerate(tqdm(loader)):
         data.to(config.device)
         with torch.no_grad():
             # max(dim=1) returns values, indices tuple; only need indices
-            score = test_model(data)[0]
-            pred = score.max(dim=1)[1]
+            score = test_model(data)
+            pred_clicks = score[0].max(dim=1)[1]
+            pred_carts = score[1].max(dim=1)[1]
+            pred_orders = score[2].max(dim=1)[1]
             label_clicks = data.y_clicks
+            label_carts = data.y_carts
+            label_orders = data.y_orders
 
         if save_model_preds:
             data = {}
-            data['pred'] = pred.view(-1).cpu().detach().numpy()
-            data['label'] = label_clicks.view(-1).cpu().detach().numpy()
+            data['pred_clicks'] = pred_clicks.view(-1).cpu().detach().numpy()
+            data['pred_carts'] = pred_carts.view(-1).cpu().detach().numpy()
+            data['pred_orders'] = pred_orders.view(-1).cpu().detach().numpy()
+
+            data['label_clicks'] = label_clicks.view(-1).cpu().detach().numpy()
+            data['label_carts'] = label_carts.view(-1).cpu().detach().numpy()
+            data['label_orders'] = label_orders.view(-1).cpu().detach().numpy()
 
             df = pd.DataFrame(data=data)
             # Save locally as csv
             df.to_csv('pred.csv', sep=',', index=False)
 
-        correct += pred.eq(label_clicks).sum().item()
+        correct_clicks += pred_clicks.eq(
+            label_clicks)[label_clicks != config.ignore_idx].sum().item()
+        correct_carts += pred_carts.eq(
+            label_carts)[label_clicks != config.ignore_idx].sum().item()
+        correct_orders += pred_orders.eq(
+            label_orders)[label_clicks != config.ignore_idx].sum().item()
 
-        # We calculate Hit@K accuracy only at test time.
-        if not is_validation:
-            score = score.cpu().detach().numpy()
-            for row in range(pred.size(0)):
-                top_k_pred = np.argpartition(score[row], -k)[-k:]
-                if label_clicks[row].item() in top_k_pred:
-                    top_k_correct += 1
+        # # We calculate Hit@K accuracy only at test time.
+        # if not is_validation:
+        #     score = score.cpu().detach().numpy()
+        #     for row in range(correct_clicks.size(0)):
+        #         top_k_pred = np.argpartition(score[row], -k)[-k:]
+        #         if label_clicks[row].item() in top_k_pred:
+        #             top_k_correct += 1
 
     if not is_validation:
-        return correct / len(loader), top_k_correct / len(loader)
+        return correct_clicks / len(loader), correct_carts / len(loader), correct_orders / len(loader), top_k_correct / len(loader)
     else:
-        return correct / len(loader), 0
+        return correct_clicks / len(loader), correct_carts / len(loader), correct_orders / len(loader), 0
+
+
+def save_preds(model, config):
+    test_dataset = GraphInMemoryDataset(
+        'data/', 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
+    test_loader = DataLoader(test_dataset,
+                             batch_size=config.batch_size,
+                             shuffle=False,
+                             drop_last=True)
+
+    test(test_loader, model, is_validation=False, save_model_preds=True)
 
 
 if __name__ == '__main__':
-    test_accs, top_k_accs, losses, best_model, best_acc, test_loader = train(
+    test_accs, top_k_accs, losses, model, best_acc, test_loader = train(
         CONFIG)
     print(test_accs, top_k_accs)
     print("Maximum test set accuracy: {0}".format(max(test_accs)))
     print("Minimum loss: {0}".format(min(losses)))
+    save_preds(model, CONFIG)
