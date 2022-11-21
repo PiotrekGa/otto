@@ -167,6 +167,8 @@ class SRGNN(nn.Module):
         self.W_2 = nn.Linear(self.hidden_size, self.hidden_size)
         self.W_3 = nn.Linear(2 * self.hidden_size,
                              self.hidden_size, bias=False)
+        self.W_4 = nn.Linear(2 * self.hidden_size,
+                             self.hidden_size, bias=False)
 
     def reset_parameters(self):
         stdv = 1.0 / np.sqrt(self.hidden_size)
@@ -210,11 +212,13 @@ class SRGNN(nn.Module):
 
         # (7)
         s_l = v_n
-        s_h = self.W_3(torch.cat([s_l, s_g], dim=-1))
+        s_h1 = self.W_3(torch.cat([s_l, s_g], dim=-1))
+        s_h2 = self.W_4(torch.cat([s_l, s_g], dim=-1))
 
         # (8)
-        z = torch.mm(self.embedding.weight, s_h.T).T
-        return z
+        z1 = torch.mm(self.embedding.weight, s_h1.T).T
+        z2 = torch.mm(self.embedding.weight, s_h2.T).T
+        return z1, z2
 
 
 def train(config):
@@ -242,7 +246,8 @@ def train(config):
     scheduler = optim.lr_scheduler.StepLR(optimizer,
                                           step_size=config.step,
                                           gamma=config.weight_decay)
-    criterion = nn.CrossEntropyLoss(ignore_index=1855606)
+    criterion1 = nn.CrossEntropyLoss(ignore_index=1855606)
+    criterion2 = nn.BCELoss()
 
     # Train
     losses = []
@@ -275,7 +280,9 @@ def train(config):
 
             pred = model(batch)
             label_clicks = batch.y_clicks
-            loss = criterion(pred, label_clicks)
+            label_carts = batch.y_clicks
+            loss = criterion1(pred[0], label_clicks)  # + \
+            #criterion2(pred[1], label_carts)
 
             loss.backward()
             optimizer.step()
@@ -321,7 +328,7 @@ def test(loader, test_model, is_validation=False, save_model_preds=False, config
         data.to(config.device)
         with torch.no_grad():
             # max(dim=1) returns values, indices tuple; only need indices
-            score = test_model(data)
+            score = test_model(data)[0]
             pred = score.max(dim=1)[1]
             label_clicks = data.y_clicks
 
