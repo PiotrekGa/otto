@@ -31,6 +31,7 @@ class CONFIG:
     comment = ''
 
     # dataset
+    ignore_idx = 1855606
     dataset_size = None
     use_events = True
 
@@ -47,7 +48,7 @@ class CONFIG:
 
     if debug:
         dataset_size = 1000
-        batch_size = 16
+        batch_size = 64
         epochs = 2
 
 
@@ -70,8 +71,9 @@ class PatchedSummaryWriter(SummaryWriter):
 
 
 class GraphInMemoryDataset(InMemoryDataset):
-    def __init__(self, root, file_name, use_events=True, dataset_size=None, transform=None, pre_transform=None):
+    def __init__(self, root, file_name, ignore_idx, use_events=True, dataset_size=None, transform=None, pre_transform=None):
         self.file_name = file_name
+        self.ignore_idx = ignore_idx
         self.use_events = use_events
         self.dataset_size = dataset_size
         super().__init__(root, transform, pre_transform)
@@ -95,39 +97,71 @@ class GraphInMemoryDataset(InMemoryDataset):
         result[1::2] = l2
         return result
 
-    @staticmethod
-    def ohe(x, items=1855603):
-        return [1. if i in x else 0. for i in range(items)]
-
     def process(self):
         raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
         raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
-        sessions = pd.read_parquet(raw_data_file1).iloc[:self.dataset_size, :]
+        sessions = pd.read_parquet(raw_data_file1)
         labels = pd.read_json(raw_data_file2, lines=True).set_index(
-            'session')['labels']
+            'session')['labels'].iloc[:self.dataset_size]
 
         sessions_aids = sessions.groupby('session')['aid'].apply(list)
         if self.use_events:
             sessions.type = sessions.type + 1855603
             sessions_type = sessions.groupby('session')['type'].apply(list)
         del sessions
-        data_list = []
 
-        for idx in tqdm(sessions_aids.index):
+        labels_df = pd.DataFrame(list(labels), index=labels.index)
+
+        clicks_series = labels_df.clicks.dropna().astype(np.int32).reset_index()
+        clicks_series.columns = ['session', 'aid']
+        clicks_series['event_type'] = 'clicks'
+
+        carts_series = labels_df.carts.explode().dropna().astype(np.int32).reset_index()
+        carts_series.columns = ['session', 'aid']
+        carts_series['event_type'] = 'carts'
+
+        orders_series = labels_df.orders.explode().dropna().astype(np.int32).reset_index()
+        orders_series.columns = ['session', 'aid']
+        orders_series['event_type'] = 'orders'
+
+        series_with_events = pd.concat([clicks_series, orders_series, carts_series]).sample(
+            frac=1).reset_index(drop=True)
+
+        del labels_df, clicks_series, orders_series, carts_series
+
+        data_list = []
+        for _, row in tqdm(series_with_events.iterrows(), total=series_with_events.shape[0]):
+            idx = row['session']
             if self.use_events:
-                session, y_clicks, y_carts = self.merge_two_lists(
-                    sessions_type[idx], sessions_aids[idx]), labels[idx].get('clicks', 1855606), self.ohe(labels[idx].get('carts', [1855606]))
+                if row['event_type'] == 'clicks':
+                    session, y_clicks, y_carts, y_orders = self.merge_two_lists(
+                        sessions_type[idx], sessions_aids[idx]), row['aid'], self.ignore_idx, self.ignore_idx
+                elif row['event_type'] == 'carts':
+                    session, y_clicks, y_carts, y_orders = self.merge_two_lists(
+                        sessions_type[idx], sessions_aids[idx]), self.ignore_idx, row['aid'], self.ignore_idx
+                elif row['event_type'] == 'orders':
+                    session, y_clicks, y_carts, y_orders = self.merge_two_lists(
+                        sessions_type[idx], sessions_aids[idx]), self.ignore_idx, self.ignore_idx, row['aid']
             else:
-                session, y_clicks, y_carts = sessions_aids[idx], labels[idx].get(
-                    'clicks', 1855606), self.ohe(labels[idx].get('carts', [1855606]))
+                if row['event_type'] == 'clicks':
+                    session, y_clicks, y_carts, y_orders = sessions_aids[
+                        idx], row['aid'], self.ignore_idx, self.ignore_idx
+                elif row['event_type'] == 'carts':
+                    session, y_clicks, y_carts, y_orders = sessions_aids[
+                        idx], self.ignore_idx, row['aid'], self.ignore_idx
+                elif row['event_type'] == 'orders':
+                    session, y_clicks, y_carts, y_orders = sessions_aids[
+                        idx], self.ignore_idx, self.ignore_idx, row['aid']
+
             codes, uniques = pd.factorize(session)
             edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
             edge_index = torch.tensor(edge_index, dtype=torch.long)
             x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
             y_clicks = torch.tensor([y_clicks], dtype=torch.long)
             y_carts = torch.tensor([y_carts], dtype=torch.long)
+            y_orders = torch.tensor([y_orders], dtype=torch.long)
             data_list.append(
-                Data(x=x, edge_index=edge_index, y_clicks=y_clicks, y_carts=y_carts))
+                Data(x=x, edge_index=edge_index, y_clicks=y_clicks, y_carts=y_carts, y_orders=y_orders))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -167,8 +201,13 @@ class SRGNN(nn.Module):
         self.W_2 = nn.Linear(self.hidden_size, self.hidden_size)
         self.W_3 = nn.Linear(2 * self.hidden_size,
                              self.hidden_size, bias=False)
-        self.W_4 = nn.Linear(2 * self.hidden_size,
-                             self.hidden_size, bias=False)
+
+        self.W_clicks = nn.Linear(self.hidden_size,
+                                  self.hidden_size, bias=False)
+        self.W_carts = nn.Linear(self.hidden_size,
+                                 self.hidden_size, bias=False)
+        self.W_orders = nn.Linear(self.hidden_size,
+                                  self.hidden_size, bias=False)
 
     def reset_parameters(self):
         stdv = 1.0 / np.sqrt(self.hidden_size)
@@ -212,25 +251,30 @@ class SRGNN(nn.Module):
 
         # (7)
         s_l = v_n
-        s_h1 = self.W_3(torch.cat([s_l, s_g], dim=-1))
-        s_h2 = self.W_4(torch.cat([s_l, s_g], dim=-1))
+        s_h = self.W_3(torch.cat([s_l, s_g], dim=-1))
+
+        x1 = self.W_clicks(torch.sigmoid(s_h))
+        x2 = self.W_carts(torch.sigmoid(s_h))
+        x3 = self.W_orders(torch.sigmoid(s_h))
 
         # (8)
-        z1 = torch.mm(self.embedding.weight, s_h1.T).T
-        z2 = torch.mm(self.embedding.weight, s_h2.T).T
-        return z1, z2
+        z1 = torch.mm(self.embedding.weight, x1.T).T
+        z2 = torch.mm(self.embedding.weight, x2.T).T
+        z3 = torch.mm(self.embedding.weight, x3.T).T
+
+        return z1, z2, z3
 
 
 def train(config):
     # Prepare data pipeline
     train_dataset = GraphInMemoryDataset(
-        'data/', 'valid1__test', use_events=config.use_events, dataset_size=config.dataset_size)
+        'data/', 'valid1__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=False,
                               drop_last=True)
     val_dataset = GraphInMemoryDataset(
-        'data/', 'valid2__test', use_events=config.use_events, dataset_size=config.dataset_size)
+        'data/', 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=False,
@@ -246,8 +290,10 @@ def train(config):
     scheduler = optim.lr_scheduler.StepLR(optimizer,
                                           step_size=config.step,
                                           gamma=config.weight_decay)
-    criterion1 = nn.CrossEntropyLoss(ignore_index=1855606)
-    criterion2 = nn.BCELoss()
+    ignore_index = config.num_items - 1
+    criterion1 = nn.CrossEntropyLoss(ignore_index=ignore_index)
+    criterion2 = nn.CrossEntropyLoss(ignore_index=ignore_index)
+    criterion3 = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     # Train
     losses = []
@@ -280,11 +326,16 @@ def train(config):
 
             pred = model(batch)
             label_clicks = batch.y_clicks
-            label_carts = batch.y_clicks
-            loss = criterion1(pred[0], label_clicks)  # + \
-            #criterion2(pred[1], label_carts)
+            label_carts = batch.y_carts
+            label_orders = batch.y_orders
+
+            loss = criterion1(pred[0], label_clicks) + \
+                criterion2(pred[1], label_carts) + \
+                criterion3(pred[2], label_orders)
 
             loss.backward()
+            print(loss)
+
             optimizer.step()
             total_loss += loss.item() * batch.num_graphs
 
