@@ -24,11 +24,14 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
+    debug = True
+
     # tensorboard
     log_dir = f'runs/experiment{timestamp}'
     comment = ''
 
     # dataset
+    dataset_size = None
     use_events = True
 
     # model
@@ -41,6 +44,11 @@ class CONFIG:
     step = 15
     lr = 0.001
     num_items = 1855607
+
+    if debug:
+        dataset_size = 1000
+        batch_size = 16
+        epochs = 2
 
 
 class PatchedSummaryWriter(SummaryWriter):
@@ -62,9 +70,10 @@ class PatchedSummaryWriter(SummaryWriter):
 
 
 class GraphInMemoryDataset(InMemoryDataset):
-    def __init__(self, root, file_name, use_events=True, transform=None, pre_transform=None):
+    def __init__(self, root, file_name, use_events=True, dataset_size=None, transform=None, pre_transform=None):
         self.file_name = file_name
         self.use_events = use_events
+        self.dataset_size = dataset_size
         super().__init__(root, transform, pre_transform)
         self.data, self.slices = torch.load(self.processed_paths[0])
 
@@ -89,7 +98,7 @@ class GraphInMemoryDataset(InMemoryDataset):
     def process(self):
         raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
         raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
-        sessions = pd.read_parquet(raw_data_file1)
+        sessions = pd.read_parquet(raw_data_file1).iloc[:self.dataset_size, :]
         labels = pd.read_json(raw_data_file2, lines=True).set_index(
             'session')['labels']
 
@@ -102,17 +111,18 @@ class GraphInMemoryDataset(InMemoryDataset):
 
         for idx in tqdm(sessions_aids.index):
             if self.use_events:
-                session, y = self.merge_two_lists(
+                session, y_clicks = self.merge_two_lists(
                     sessions_type[idx], sessions_aids[idx]), labels[idx].get('clicks', 1855606)
             else:
-                session, y = sessions_aids[idx], labels[idx].get(
+                session, y_clicks = sessions_aids[idx], labels[idx].get(
                     'clicks', 1855606)
             codes, uniques = pd.factorize(session)
             edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
             edge_index = torch.tensor(edge_index, dtype=torch.long)
             x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
-            y = torch.tensor([y], dtype=torch.long)
-            data_list.append(Data(x=x, edge_index=edge_index, y=y))
+            y_clicks = torch.tensor([y_clicks], dtype=torch.long)
+            data_list.append(
+                Data(x=x, edge_index=edge_index, y_clicks=y_clicks))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -205,13 +215,13 @@ class SRGNN(nn.Module):
 def train(config):
     # Prepare data pipeline
     train_dataset = GraphInMemoryDataset(
-        'data/', 'valid1__test', use_events=config.use_events)
+        'data/', 'valid1__test', use_events=config.use_events, dataset_size=config.dataset_size)
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=False,
                               drop_last=True)
     val_dataset = GraphInMemoryDataset(
-        'data/', 'valid2__test', use_events=config.use_events)
+        'data/', 'valid2__test', use_events=config.use_events, dataset_size=config.dataset_size)
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=False,
@@ -259,8 +269,8 @@ def train(config):
             optimizer.zero_grad()
 
             pred = model(batch)
-            label = batch.y
-            loss = criterion(pred, label)
+            label_clicks = batch.y_clicks
+            loss = criterion(pred, label_clicks)
 
             loss.backward()
             optimizer.step()
@@ -308,25 +318,25 @@ def test(loader, test_model, is_validation=False, save_model_preds=False, config
             # max(dim=1) returns values, indices tuple; only need indices
             score = test_model(data)
             pred = score.max(dim=1)[1]
-            label = data.y
+            label_clicks = data.y_clicks
 
         if save_model_preds:
             data = {}
             data['pred'] = pred.view(-1).cpu().detach().numpy()
-            data['label'] = label.view(-1).cpu().detach().numpy()
+            data['label'] = label_clicks.view(-1).cpu().detach().numpy()
 
             df = pd.DataFrame(data=data)
             # Save locally as csv
             df.to_csv('pred.csv', sep=',', index=False)
 
-        correct += pred.eq(label).sum().item()
+        correct += pred.eq(label_clicks).sum().item()
 
         # We calculate Hit@K accuracy only at test time.
         if not is_validation:
             score = score.cpu().detach().numpy()
             for row in range(pred.size(0)):
                 top_k_pred = np.argpartition(score[row], -k)[-k:]
-                if label[row].item() in top_k_pred:
+                if label_clicks[row].item() in top_k_pred:
                     top_k_correct += 1
 
     if not is_validation:
