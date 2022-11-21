@@ -95,6 +95,10 @@ class GraphInMemoryDataset(InMemoryDataset):
         result[1::2] = l2
         return result
 
+    @staticmethod
+    def ohe(x, items=1855603):
+        return [1. if i in x else 0. for i in range(items)]
+
     def process(self):
         raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
         raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
@@ -111,18 +115,19 @@ class GraphInMemoryDataset(InMemoryDataset):
 
         for idx in tqdm(sessions_aids.index):
             if self.use_events:
-                session, y_clicks = self.merge_two_lists(
-                    sessions_type[idx], sessions_aids[idx]), labels[idx].get('clicks', 1855606)
+                session, y_clicks, y_carts = self.merge_two_lists(
+                    sessions_type[idx], sessions_aids[idx]), labels[idx].get('clicks', 1855606), self.ohe(labels[idx].get('carts', [1855606]))
             else:
-                session, y_clicks = sessions_aids[idx], labels[idx].get(
-                    'clicks', 1855606)
+                session, y_clicks, y_carts = sessions_aids[idx], labels[idx].get(
+                    'clicks', 1855606), self.ohe(labels[idx].get('carts', [1855606]))
             codes, uniques = pd.factorize(session)
             edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
             edge_index = torch.tensor(edge_index, dtype=torch.long)
             x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
             y_clicks = torch.tensor([y_clicks], dtype=torch.long)
+            y_carts = torch.tensor([y_carts], dtype=torch.long)
             data_list.append(
-                Data(x=x, edge_index=edge_index, y_clicks=y_clicks))
+                Data(x=x, edge_index=edge_index, y_clicks=y_clicks, y_carts=y_carts))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
