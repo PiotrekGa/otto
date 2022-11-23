@@ -254,7 +254,6 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
 
         data_list = []
         for idx in tqdm(sessions_aids.index):
-
             first_list = self.merge_two_lists(
                 sessions_type[idx], sessions_aids[idx])
             second_list = self.merge_two_lists(
@@ -268,8 +267,11 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
                 edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
                 edge_index = torch.tensor(edge_index, dtype=torch.long)
                 x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
+                event_type = event_type - 1855603
+                event_type = torch.tensor(event_type, dtype=torch.int8)
+                session_id = torch.tensor(idx, dtype=torch.int32)
                 data_list.append(
-                    Data(x=x, edge_index=edge_index))
+                    Data(x=x, edge_index=edge_index, event_type=event_type, session_id=session_id))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -518,6 +520,45 @@ def test(loader, test_model, is_validation=False, save_model_preds=False, config
         return correct_clicks / 13577, correct_carts / 4450, correct_orders / 2434, 0
     else:
         return correct_clicks / 13577, correct_carts / 4450, correct_orders / 2434, 0
+
+
+def prepare_kaggle_submission(model, test_loader, k_init=25, k_final=20):
+
+    submission = []
+
+    for _, data in enumerate(tqdm(test_loader)):
+        with torch.no_grad():
+            # max(dim=1) returns values, indices tuple; only need indices
+            score = model(data)
+            event_types = data.event_type
+            sessions = data.session_id
+
+        for row in range(event_types.size(0)):
+
+            event_type = event_types[row].item()
+            sessions_str = str(sessions[row].item()) + '_'
+
+            if event_type == 0:
+                top_k_pred = np.argpartition(score[0][row], -k_init)[-k_init:]
+                top_k_pred = top_k_pred[top_k_pred < 1855603][:k_final]
+                sessions_str = sessions_str + 'clicks'
+
+            elif event_type == 1:
+                top_k_pred = np.argpartition(score[1][row], -k_init)[-k_init:]
+                top_k_pred = top_k_pred[top_k_pred < 1855603][:k_final]
+                sessions_str = sessions_str + 'carts'
+
+            else:
+                top_k_pred = np.argpartition(score[2][row], -k_init)[-k_init:]
+                top_k_pred = top_k_pred[top_k_pred < 1855603][:k_final]
+                sessions_str = sessions_str + 'orders'
+
+            top_k_pred = top_k_pred.cpu().numpy()
+            top_k_pred = ' '.join(list(top_k_pred.astype(str)))
+            submission.append([sessions_str, top_k_pred])
+
+    submission = pd.DataFrame(submission, columns=['session_type', 'labels'])
+    submission.to_csv('submission.csv', index=False)
 
 
 def save_preds(model, config):
