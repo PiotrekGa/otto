@@ -24,13 +24,14 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
-    debug = True
+    debug = False
 
     # tensorboard
     log_dir = f'runs/experiment{timestamp}'
     comment = ''
 
     # dataset
+    data_path = '.'
     ignore_idx = 1855607
     dataset_size = None
     use_events = True
@@ -47,10 +48,11 @@ class CONFIG:
     num_items = 1855608
 
     if debug:
-        dataset_size = 200
-        batch_size = 16
-        epochs = 1
-        hidden_dim = 8
+        data_path = 'data/'
+        dataset_size = 1000
+        batch_size = 128
+        epochs = 2
+        hidden_dim = 32
 
 
 class PatchedSummaryWriter(SummaryWriter):
@@ -146,7 +148,13 @@ class GraphInMemoryDataset(InMemoryDataset):
         orders_series['event_type'] = 'orders'
 
         series_with_events = pd.concat([clicks_series, orders_series, carts_series]).sample(
-            frac=1).reset_index(drop=True)
+            frac=1)
+
+        series_with_events['rr'] = series_with_events.groupby(
+            'event_type').cumcount() % int(series_with_events.shape[0] / 32)
+        series_with_events.sort_values(
+            by='rr', inplace=True, ignore_index=True)
+        series_with_events.drop('rr', axis=1, inplace=True)
 
         del labels_df, clicks_series, orders_series, carts_series
 
@@ -162,12 +170,15 @@ class GraphInMemoryDataset(InMemoryDataset):
             long_list = [i for i in long_list if i >= 0]
 
             if row['event_type'] == 'clicks':
+                long_list = long_list + [1855603]
                 session, y_clicks, y_carts, y_orders = long_list, row[
                     'aid'], self.ignore_idx, self.ignore_idx
             elif row['event_type'] == 'carts':
+                long_list = long_list + [1855604]
                 session, y_clicks, y_carts, y_orders = long_list, self.ignore_idx, row[
                     'aid'], self.ignore_idx
             elif row['event_type'] == 'orders':
+                long_list = long_list + [1855605]
                 session, y_clicks, y_carts, y_orders = long_list, self.ignore_idx, self.ignore_idx, row[
                     'aid']
 
@@ -286,13 +297,13 @@ class SRGNN(nn.Module):
 def train(config):
     # Prepare data pipeline
     train_dataset = GraphInMemoryDataset(
-        'data/', 'valid1__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
+        config.data_path, 'valid1__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=False,
                               drop_last=True)
     val_dataset = GraphInMemoryDataset(
-        'data/', 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
+        config.data_path, 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=False,
@@ -315,9 +326,6 @@ def train(config):
     losses = []
     test_accs = []
     top_k_accs = []
-
-    best_acc = 0
-    best_model = None
 
     writer = PatchedSummaryWriter(
         log_dir=config.log_dir, comment=config.comment)
@@ -387,12 +395,9 @@ def train(config):
 def test(loader, test_model, is_validation=False, save_model_preds=False, config=CONFIG):
     test_model.eval()
 
-    # Define K for Hit@K metrics.
-    k = 20
     correct_clicks = 0
     correct_carts = 0
     correct_orders = 0
-    top_k_correct = 0
 
     for _, data in enumerate(tqdm(loader)):
         data.to(config.device)
@@ -423,27 +428,19 @@ def test(loader, test_model, is_validation=False, save_model_preds=False, config
         correct_clicks += pred_clicks.eq(
             label_clicks)[label_clicks != config.ignore_idx].sum().item()
         correct_carts += pred_carts.eq(
-            label_carts)[label_clicks != config.ignore_idx].sum().item()
+            label_carts)[label_carts != config.ignore_idx].sum().item()
         correct_orders += pred_orders.eq(
-            label_orders)[label_clicks != config.ignore_idx].sum().item()
-
-        # # We calculate Hit@K accuracy only at test time.
-        # if not is_validation:
-        #     score = score.cpu().detach().numpy()
-        #     for row in range(correct_clicks.size(0)):
-        #         top_k_pred = np.argpartition(score[row], -k)[-k:]
-        #         if label_clicks[row].item() in top_k_pred:
-        #             top_k_correct += 1
+            label_orders)[label_orders != config.ignore_idx].sum().item()
 
     if not is_validation:
-        return correct_clicks / len(loader), correct_carts / len(loader), correct_orders / len(loader), top_k_correct / len(loader)
+        return correct_clicks / 13577, correct_carts / 4450, correct_orders / 2434, 0
     else:
-        return correct_clicks / len(loader), correct_carts / len(loader), correct_orders / len(loader), 0
+        return correct_clicks / 13577, correct_carts / 4450, correct_orders / 2434, 0
 
 
 def save_preds(model, config):
     test_dataset = GraphInMemoryDataset(
-        'data/', 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
+        config.data_path, 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
     test_loader = DataLoader(test_dataset,
                              batch_size=config.batch_size,
                              shuffle=False,
@@ -458,4 +455,4 @@ if __name__ == '__main__':
     print(test_accs, top_k_accs)
     print("Maximum test set accuracy: {0}".format(max(test_accs)))
     print("Minimum loss: {0}".format(min(losses)))
-    save_preds(model, CONFIG)
+    # save_preds(model, CONFIG)
