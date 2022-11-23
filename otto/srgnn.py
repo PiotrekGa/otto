@@ -24,7 +24,7 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
-    debug = False
+    debug = True
 
     # tensorboard
     log_dir = f'runs/experiment{timestamp}'
@@ -51,7 +51,7 @@ class CONFIG:
         data_path = 'data/'
         dataset_size = 1000
         batch_size = 128
-        epochs = 2
+        epochs = 3
         hidden_dim = 32
 
 
@@ -74,7 +74,7 @@ class PatchedSummaryWriter(SummaryWriter):
 
 
 class GraphInMemoryDataset(InMemoryDataset):
-    def __init__(self, root, file_name, ignore_idx, use_events=True, use_subsessions=True, dataset_size=None, transform=None, pre_transform=None):
+    def __init__(self, root, file_name, ignore_idx=1855607, use_events=True, use_subsessions=True, dataset_size=None, transform=None, pre_transform=None):
         self.file_name = file_name
         self.ignore_idx = ignore_idx
         self.use_events = use_events
@@ -191,6 +191,85 @@ class GraphInMemoryDataset(InMemoryDataset):
             y_orders = torch.tensor([y_orders], dtype=torch.long)
             data_list.append(
                 Data(x=x, edge_index=edge_index, y_clicks=y_clicks, y_carts=y_carts, y_orders=y_orders))
+
+        data, slices = self.collate(data_list)
+        torch.save((data, slices), self.processed_paths[0])
+
+
+class GraphInMemoryDatasetTest(InMemoryDataset):
+    def __init__(self, root, file_name, use_events=True, use_subsessions=True, dataset_size=None, transform=None, pre_transform=None):
+        self.file_name = file_name
+        self.use_events = use_events
+        self.use_subsessions = use_subsessions
+        self.dataset_size = dataset_size
+        super().__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+
+    @property
+    def raw_file_names(self):
+        return [f'{self.file_name}.parquet']
+
+    @property
+    def processed_file_names(self):
+        return [f'{self.file_name}.pt']
+
+    def download(self):
+        pass
+
+    @staticmethod
+    def merge_two_lists(l1, l2):
+        result = [None]*(len(l1)+len(l2))
+        result[::2] = l1
+        result[1::2] = l2
+        return result
+
+    @staticmethod
+    def create_sessions(df, threshold=30):
+        df['ts_lagged'] = df.ts.shift(1).fillna(df.ts).astype(np.int32)
+        df['session_lagged'] = df.session.shift(
+            1).fillna(df.ts).astype(np.int32)
+        df['difference'] = df.ts - df.ts_lagged
+        df['break_point'] = ((df.difference > threshold * 60)
+                             | (df.session != df.session_lagged)) * 2 - 1
+        df.drop(['ts_lagged', 'session_lagged',
+                'difference'], axis=1, inplace=True)
+        return df
+
+    def process(self):
+        raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
+        sessions = pd.read_parquet(raw_data_file1).iloc[:self.dataset_size, :]
+
+        sessions = self.create_sessions(sessions)
+
+        sessions_aids = sessions.groupby('session')['aid'].apply(list)
+        if self.use_events:
+            sessions.type = sessions.type + 1855603
+            sessions_type = sessions.groupby('session')['type'].apply(list)
+        if self.use_subsessions:
+            sessions.break_point = sessions.break_point * 1855606
+            sessions_subs = sessions.groupby(
+                'session')['break_point'].apply(list)
+
+        del sessions
+
+        data_list = []
+        for idx in tqdm(sessions_aids.index):
+
+            first_list = self.merge_two_lists(
+                sessions_type[idx], sessions_aids[idx])
+            second_list = self.merge_two_lists(
+                sessions_subs[idx], [-1] * len(sessions_subs[idx]))
+            long_list = self.merge_two_lists(second_list, first_list)
+            long_list = [i for i in long_list if i >= 0]
+
+            for event_type in [1855603, 1855604, 1855605]:
+                session = long_list + [event_type]
+                codes, uniques = pd.factorize(session)
+                edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+                edge_index = torch.tensor(edge_index, dtype=torch.long)
+                x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
+                data_list.append(
+                    Data(x=x, edge_index=edge_index))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -362,6 +441,9 @@ def train(config):
             optimizer.step()
             total_loss += loss.item() * batch.num_graphs
 
+        torch.save(model.state_dict(),
+                   f'checkpoints/checkpoint_otto_{epoch}.pt')
+
         total_loss /= len(train_loader.dataset)
         losses.append(total_loss)
 
@@ -439,8 +521,8 @@ def test(loader, test_model, is_validation=False, save_model_preds=False, config
 
 
 def save_preds(model, config):
-    test_dataset = GraphInMemoryDataset(
-        config.data_path, 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
+    test_dataset = GraphInMemoryDatasetTest(
+        config.data_path, 'test', use_events=config.use_events, dataset_size=config.dataset_size)
     test_loader = DataLoader(test_dataset,
                              batch_size=config.batch_size,
                              shuffle=False,
