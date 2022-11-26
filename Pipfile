@@ -19,6 +19,8 @@ torch-cluster = "*"
 torch-spline-conv = "*"
 torch-geometric = "*"
 gensim = "*"
+merlin-dataloader = "*"
+polars = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"
