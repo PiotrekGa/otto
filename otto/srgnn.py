@@ -39,7 +39,7 @@ class CONFIG:
     # model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 128
-    hidden_dim = 128
+    hidden_dim = 256
     epochs = 50
     l2_penalty = 0.00001
     weight_decay = 0.1
@@ -191,7 +191,8 @@ class GraphInMemoryDataset(InMemoryDataset):
 
             codes, uniques = pd.factorize(session)
             edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
-            edge_index = torch.tensor(edge_index, dtype=torch.long)
+            edge_index = torch.tensor(
+                edge_index, dtype=torch.long).unique(dim=1)
 
             if self.w2v_path is not None:
                 x = np.concatenate([w2v_embedder(i).reshape(1, -1)
@@ -284,7 +285,8 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
                 session = long_list + [event_type]
                 codes, uniques = pd.factorize(session)
                 edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
-                edge_index = torch.tensor(edge_index, dtype=torch.long)
+                edge_index = torch.tensor(
+                    edge_index, dtype=torch.long).unique(dim=1)
                 if self.w2v_path is not None:
                     x = np.concatenate([w2v_embedder(i).reshape(1, -1)
                                         for i in uniques], axis=0)
@@ -380,7 +382,8 @@ class GraphDatasetTest(Dataset):
                 session = long_list + [event_type]
                 codes, uniques = pd.factorize(session)
                 edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
-                edge_index = torch.tensor(edge_index, dtype=torch.long)
+                edge_index = torch.tensor(
+                    edge_index, dtype=torch.long).unique(dim=1)
                 if self.w2v_path is not None:
                     x = np.concatenate([w2v_embedder(i).reshape(1, -1)
                                         for i in uniques], axis=0)
@@ -563,10 +566,6 @@ def train(config):
     ignore_index = config.num_items - 1
     criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
-    # Train
-    losses = []
-    test_accs = []
-
     writer = PatchedSummaryWriter(
         log_dir=config.log_dir, comment=config.comment)
 
@@ -593,9 +592,9 @@ def train(config):
             label_carts = batch.y_carts
             label_orders = batch.y_orders
 
-            loss = 0.1 * criterion(pred[0], label_clicks) + \
-                0.3 * criterion(pred[1], label_carts) + \
-                0.6 * criterion(pred[2], label_orders)
+            loss = criterion(pred[0], label_clicks) + \
+                criterion(pred[1], label_carts) + \
+                criterion(pred[2], label_orders)
 
             loss.backward()
 
@@ -606,21 +605,16 @@ def train(config):
                    f'checkpoints/checkpoint_otto_{epoch}.pt')
 
         total_loss /= len(train_loader.dataset)
-        losses.append(total_loss)
 
-        writer.add_scalar('Loss/train', loss, epoch + 1)
+        writer.add_scalar('Loss/train', total_loss, epoch + 1)
         writer.add_scalar('Params/lr', optimizer.state_dict()
                           ['param_groups'][0]['lr'], epoch + 1)
 
         scheduler.step()
 
-        if epoch % 1 == 0:
-            test_acc_clicks, test_acc_carts, test_acc_orders, loss_test = test(
-                val_loader, model)
-            print(test_acc_clicks, test_acc_carts, test_acc_orders)
-            test_accs.append(test_acc_orders)
-        else:
-            test_accs.append(test_accs[-1])
+        test_acc_clicks, test_acc_carts, test_acc_orders, loss_test = test(
+            val_loader, model)
+        print(test_acc_clicks, test_acc_carts, test_acc_orders)
 
         writer.add_scalar('Accuracy/test_acc_clicks',
                           test_acc_clicks, epoch + 1)
@@ -631,7 +625,7 @@ def train(config):
 
     writer.close()
 
-    return test_accs, losses, model, test_acc_orders, val_loader
+    return model
 
 
 def test(loader, test_model, config=CONFIG):
@@ -660,9 +654,9 @@ def test(loader, test_model, config=CONFIG):
             label_carts = data.y_carts
             label_orders = data.y_orders
 
-            loss_test = 0.1 * criterion(score[0], label_clicks) + \
-                0.3 * criterion(score[1], label_carts) + \
-                0.6 * criterion(score[2], label_orders)
+            loss_test = criterion(score[0], label_clicks) + \
+                criterion(score[1], label_carts) + \
+                criterion(score[2], label_orders)
 
             loss_test_total += loss_test.item() * data.num_graphs
 
@@ -736,5 +730,4 @@ def prepare_kaggle_submission(model, test_loader, sub_name, k_init=25, k_final=2
 
 
 if __name__ == '__main__':
-    test_accs, losses, model, best_acc, test_loader = train(
-        CONFIG)
+    model = train(CONFIG)
