@@ -1,3 +1,5 @@
+import os.path as osp
+
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -6,7 +8,7 @@ from datetime import datetime
 from gensim.models import Word2Vec
 
 import torch
-from torch_geometric.data import Data, InMemoryDataset
+from torch_geometric.data import Data, InMemoryDataset, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn.conv import MessagePassing
 import torch.nn as nn
@@ -202,7 +204,7 @@ class GraphInMemoryDataset(InMemoryDataset):
             y_carts = torch.tensor([y_carts], dtype=torch.long)
             y_orders = torch.tensor([y_orders], dtype=torch.long)
             data_list.append(
-                Data(x=x, edge_index=edge_index, y_clicks=y_clicks, y_carts=y_carts, y_orders=y_orders))
+                Data(x=x, edge_index=edge_index, y_clicks=y_clicks, y_carts=y_carts, y_orders=y_orders).contiguous().to(CONFIG.device))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -293,10 +295,113 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
                 event_type = torch.tensor(event_type, dtype=torch.int8)
                 session_id = torch.tensor(idx, dtype=torch.int32)
                 data_list.append(
-                    Data(x=x, edge_index=edge_index, event_type=event_type, session_id=session_id))
+                    Data(x=x, edge_index=edge_index, event_type=event_type, session_id=session_id).contiguous().to(CONFIG.device))
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
+
+
+class GraphDatasetTest(Dataset):
+
+    """
+    file_size for test: 5015409
+    file_size for valid2__test: 5351211
+    """
+
+    def __init__(self, root, file_name, file_size=5015409, use_events=True, use_subsessions=True, dataset_size=None, w2v_path=None, transform=None, pre_transform=None):
+        self.file_name = file_name
+        self.use_events = use_events
+        self.file_size = file_size
+        self.use_subsessions = use_subsessions
+        self.dataset_size = dataset_size
+        self.w2v_path = w2v_path
+        super().__init__(root, transform, pre_transform)
+
+    @property
+    def raw_file_names(self):
+        return [f'{self.file_name}.parquet']
+
+    @property
+    def processed_file_names(self):
+        return [f'inference__{self.file_name}_{i}.pt' for i in range(self.file_size)]
+
+    def download(self):
+        pass
+
+    @staticmethod
+    def merge_two_lists(l1, l2):
+        result = [None]*(len(l1)+len(l2))
+        result[::2] = l1
+        result[1::2] = l2
+        return result
+
+    @staticmethod
+    def create_sessions(df, threshold=30):
+        df['ts_lagged'] = df.ts.shift(1).fillna(df.ts).astype(np.int32)
+        df['session_lagged'] = df.session.shift(
+            1).fillna(df.ts).astype(np.int32)
+        df['difference'] = df.ts - df.ts_lagged
+        df['break_point'] = ((df.difference > threshold * 60)
+                             | (df.session != df.session_lagged)) * 2 - 1
+        df.drop(['ts_lagged', 'session_lagged',
+                'difference'], axis=1, inplace=True)
+        return df
+
+    def process(self):
+        raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
+        sessions = pd.read_parquet(raw_data_file1).iloc[:self.dataset_size, :]
+
+        sessions = self.create_sessions(sessions)
+
+        sessions_aids = sessions.groupby('session')['aid'].apply(list)
+        if self.use_events:
+            sessions.type = sessions.type + 1855603
+            sessions_type = sessions.groupby('session')['type'].apply(list)
+        if self.use_subsessions:
+            sessions.break_point = sessions.break_point * 1855606
+            sessions_subs = sessions.groupby(
+                'session')['break_point'].apply(list)
+
+        del sessions
+
+        if self.w2v_path is not None:
+            w2v_embedder = W2VEmbedding(self.w2v_path)
+
+        for idx in tqdm(sessions_aids.index):
+
+            first_list = self.merge_two_lists(
+                sessions_type[idx], sessions_aids[idx])
+            second_list = self.merge_two_lists(
+                sessions_subs[idx], [-1] * len(sessions_subs[idx]))
+            long_list = self.merge_two_lists(second_list, first_list)
+            long_list = [i for i in long_list if i >= 0]
+
+            for event_type in [1855603, 1855604, 1855605]:
+                session = long_list + [event_type]
+                codes, uniques = pd.factorize(session)
+                edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+                edge_index = torch.tensor(edge_index, dtype=torch.long)
+                if self.w2v_path is not None:
+                    x = np.concatenate([w2v_embedder(i).reshape(1, -1)
+                                        for i in uniques], axis=0)
+                    x = torch.tensor(x, dtype=torch.float32)
+                else:
+                    x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
+                event_type = event_type - 1855603
+                event_type = torch.tensor(event_type, dtype=torch.int8)
+                session_id = torch.tensor(idx, dtype=torch.int32)
+                data = Data(x=x, edge_index=edge_index,
+                            event_type=event_type, session_id=session_id)
+                torch.save(data, osp.join(
+                    self.processed_dir, f'inference__{self.file_name}_{idx}.pt'))
+
+    def len(self):
+        return len(self.processed_file_names)
+
+    def get(self, idx):
+        data = torch.load(osp.join(self.processed_dir,
+                          f'inference__{self.file_name}_{idx}.pt'))
+        return data
 
 
 class W2VEmbedding():
@@ -582,7 +687,7 @@ def test(loader, test_model, config=CONFIG):
 def prepare_kaggle_submission(model, test_loader, sub_name, k_init=25, k_final=20, debug=False):
     submission = []
     for _, data in enumerate(tqdm(test_loader)):
-        data.to('cuda')
+        data.to(CONFIG.device)
         with torch.no_grad():
             # max(dim=1) returns values, indices tuple; only need indices
             score = model(data)
