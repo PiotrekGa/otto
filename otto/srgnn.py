@@ -191,8 +191,9 @@ class GraphInMemoryDataset(InMemoryDataset):
 
             codes, uniques = pd.factorize(session)
             edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+            # making edge_index unique is not needed as MessagePassing does it with weights addded
             edge_index = torch.tensor(
-                edge_index, dtype=torch.long).unique(dim=1)
+                edge_index, dtype=torch.long)
 
             if self.w2v_path is not None:
                 x = np.concatenate([w2v_embedder(i).reshape(1, -1)
@@ -285,8 +286,9 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
                 session = long_list + [event_type]
                 codes, uniques = pd.factorize(session)
                 edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+                # making edge_index unique is not needed as MessagePassing does it with weights addded
                 edge_index = torch.tensor(
-                    edge_index, dtype=torch.long).unique(dim=1)
+                    edge_index, dtype=torch.long)
                 if self.w2v_path is not None:
                     x = np.concatenate([w2v_embedder(i).reshape(1, -1)
                                         for i in uniques], axis=0)
@@ -382,8 +384,9 @@ class GraphDatasetTest(Dataset):
                 session = long_list + [event_type]
                 codes, uniques = pd.factorize(session)
                 edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+                # making edge_index unique is not needed as MessagePassing does it with weights addded
                 edge_index = torch.tensor(
-                    edge_index, dtype=torch.long).unique(dim=1)
+                    edge_index, dtype=torch.long)
                 if self.w2v_path is not None:
                     x = np.concatenate([w2v_embedder(i).reshape(1, -1)
                                         for i in uniques], axis=0)
