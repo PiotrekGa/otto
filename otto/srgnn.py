@@ -24,7 +24,7 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
-    debug = True
+    debug = False
 
     # tensorboard
     log_dir = f'runs/experiment{timestamp}'
@@ -40,10 +40,10 @@ class CONFIG:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 128
     hidden_dim = 256
-    epochs = 50
+    epochs = 20
     l2_penalty = 0.00001
     weight_decay = 0.1
-    step = 15
+    step = 5
     lr = 0.001
     num_items = 1855608
 
@@ -210,6 +210,166 @@ class GraphInMemoryDataset(InMemoryDataset):
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
+
+
+class GraphDataset(Dataset):
+
+    def __init__(self, root, file_name, ignore_idx=1855607, use_events=True, use_subsessions=True, dataset_size=None, w2v_path=None, transform=None, pre_transform=None):
+        self.file_name = file_name
+        self.ignore_idx = ignore_idx
+        self.use_events = use_events
+        self.use_subsessions = use_subsessions
+        self.dataset_size = dataset_size
+        self.w2v_path = w2v_path
+
+        if file_name == 'valid1__test':
+            self.sessions_num = 2224034
+        elif file_name == 'valid2__test':
+            self.sessions_num = 1783737
+
+        super().__init__(root, transform, pre_transform)
+
+    @property
+    def raw_file_names(self):
+        return [f'{self.file_name}.parquet', f'{self.file_name}_labels.jsonl']
+
+    @property
+    def processed_file_names(self):
+        if self.w2v_path:
+            return [f'{self.file_name}_w2v_{i}.pt' for i in range(self.sessions_num)]
+        else:
+            return [f'{self.file_name}_{i}.pt' for i in range(self.sessions_num)]
+
+    def download(self):
+        pass
+
+    @staticmethod
+    def merge_two_lists(l1, l2):
+        result = [None]*(len(l1)+len(l2))
+        result[::2] = l1
+        result[1::2] = l2
+        return result
+
+    @staticmethod
+    def create_sessions(df, threshold=30):
+        df['ts_lagged'] = df.ts.shift(1).fillna(df.ts).astype(np.int32)
+        df['session_lagged'] = df.session.shift(
+            1).fillna(df.ts).astype(np.int32)
+        df['difference'] = df.ts - df.ts_lagged
+        df['break_point'] = ((df.difference > threshold * 60)
+                             | (df.session != df.session_lagged)) * 2 - 1
+        df.drop(['ts_lagged', 'session_lagged',
+                'difference'], axis=1, inplace=True)
+        return df
+
+    def process(self):
+        raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
+        raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
+        sessions = pd.read_parquet(raw_data_file1)
+        labels = pd.read_json(raw_data_file2, lines=True).set_index(
+            'session')['labels'].iloc[:self.dataset_size]
+
+        sessions = self.create_sessions(sessions)
+
+        sessions_aids = sessions.groupby('session')['aid'].apply(list)
+        if self.use_events:
+            sessions.type = sessions.type + 1855603
+            sessions_type = sessions.groupby('session')['type'].apply(list)
+        if self.use_subsessions:
+            sessions.break_point = sessions.break_point * 1855606
+            sessions_subs = sessions.groupby(
+                'session')['break_point'].apply(list)
+
+        del sessions
+
+        labels_df = pd.DataFrame(list(labels), index=labels.index)
+
+        clicks_series = labels_df.clicks.dropna().astype(np.int32).reset_index()
+        clicks_series.columns = ['session', 'aid']
+        clicks_series['event_type'] = 'clicks'
+
+        carts_series = labels_df.carts.explode().dropna().astype(np.int32).reset_index()
+        carts_series.columns = ['session', 'aid']
+        carts_series['event_type'] = 'carts'
+
+        orders_series = labels_df.orders.explode().dropna().astype(np.int32).reset_index()
+        orders_series.columns = ['session', 'aid']
+        orders_series['event_type'] = 'orders'
+
+        series_with_events = pd.concat([clicks_series, orders_series, carts_series]).sample(
+            frac=1)
+
+        series_with_events['rr'] = series_with_events.groupby(
+            'event_type').cumcount() % int(series_with_events.shape[0] / 32)
+        series_with_events.sort_values(
+            by='rr', inplace=True, ignore_index=True)
+        series_with_events.drop('rr', axis=1, inplace=True)
+
+        del labels_df, clicks_series, orders_series, carts_series
+
+        if self.w2v_path is not None:
+            w2v_embedder = W2VEmbedding(self.w2v_path)
+
+        data_list = []
+        for _, row in tqdm(series_with_events.iterrows(), total=series_with_events.shape[0]):
+            idx = row['session']
+
+            first_list = self.merge_two_lists(
+                sessions_type[idx], sessions_aids[idx])
+            second_list = self.merge_two_lists(
+                sessions_subs[idx], [-1] * len(sessions_subs[idx]))
+            long_list = self.merge_two_lists(second_list, first_list)
+            long_list = [i for i in long_list if i >= 0]
+
+            if row['event_type'] == 'clicks':
+                long_list = long_list + [1855603]
+                session, y_clicks, y_carts, y_orders = long_list, row[
+                    'aid'], self.ignore_idx, self.ignore_idx
+            elif row['event_type'] == 'carts':
+                long_list = long_list + [1855604]
+                session, y_clicks, y_carts, y_orders = long_list, self.ignore_idx, row[
+                    'aid'], self.ignore_idx
+            elif row['event_type'] == 'orders':
+                long_list = long_list + [1855605]
+                session, y_clicks, y_carts, y_orders = long_list, self.ignore_idx, self.ignore_idx, row[
+                    'aid']
+
+            codes, uniques = pd.factorize(session)
+            edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+            # making edge_index unique is not needed as MessagePassing does it with weights addded
+            edge_index = torch.tensor(
+                edge_index, dtype=torch.long)
+
+            if self.w2v_path is not None:
+                x = np.concatenate([w2v_embedder(i).reshape(1, -1)
+                                   for i in uniques], axis=0)
+                x = torch.tensor(x, dtype=torch.float32)
+            else:
+                x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
+
+            y_clicks = torch.tensor([y_clicks], dtype=torch.long)
+            y_carts = torch.tensor([y_carts], dtype=torch.long)
+            y_orders = torch.tensor([y_orders], dtype=torch.long)
+            data = Data(x=x, edge_index=edge_index, y_clicks=y_clicks,
+                        y_carts=y_carts, y_orders=y_orders).contiguous().to(CONFIG.device)
+
+            if self.w2v_path:
+                torch.save(data, osp.join(
+                    self.processed_dir, f'{self.file_name}_w2v_{idx}.pt'))
+            else:
+                torch.save(data, osp.join(
+                    self.processed_dir, f'{self.file_name}_{idx}.pt'))
+
+    def len(self):
+        return self.sessions_num
+
+    def get(self, idx):
+        if self.w2v_path:
+            return torch.load(osp.join(self.processed_dir,
+                                       f'{self.file_name}_w2v_{idx}.pt'))
+        else:
+            return torch.load(osp.join(self.processed_dir,
+                                       f'{self.file_name}_{idx}.pt'))
 
 
 class GraphInMemoryDatasetTest(InMemoryDataset):
