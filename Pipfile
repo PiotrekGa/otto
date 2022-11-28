@@ -21,6 +21,7 @@ torch-geometric = "*"
 gensim = "*"
 merlin-dataloader = "*"
 polars = "*"
+beartype = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"

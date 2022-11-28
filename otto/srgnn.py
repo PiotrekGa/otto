@@ -1,5 +1,6 @@
 import os.path as osp
 
+import math
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -41,11 +42,11 @@ class CONFIG:
     # model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 128
-    hidden_dim = 256
+    hidden_dim = 128
     epochs = 20
     l2_penalty = 0.00001
     weight_decay = 0.1
-    step = 5
+    step = 3
     lr = 0.001
     num_items = 1855608
 
@@ -666,6 +667,11 @@ class SRGNN(nn.Module):
                                  self.output_size, bias=False)
         self.W_orders = nn.Linear(self.hidden_size,
                                   self.output_size, bias=False)
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            weight.data.uniform_(-stdv, stdv)
 
     def forward(self, data):
         x, edge_index, batch_map = data.x, data.edge_index, data.batch
