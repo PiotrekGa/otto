@@ -24,7 +24,7 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
-    debug = False
+    debug = True
 
     # tensorboard
     log_dir = f'runs/experiment{timestamp}'
@@ -35,6 +35,8 @@ class CONFIG:
     ignore_idx = 1855607
     dataset_size = None
     use_events = True
+    w2v_path = None
+    w2v_size = 100
 
     # model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -47,12 +49,17 @@ class CONFIG:
     lr = 0.001
     num_items = 1855608
 
+    # validation
+    valid_sessions = 10_000
+
     if debug:
         data_path = 'data/'
-        dataset_size = 1000
-        batch_size = 16
+        w2v_path = 'data/word2vec.model'
+        dataset_size = 2000
+        batch_size = 32
         epochs = 3
-        hidden_dim = 16
+        hidden_dim = 32
+        valid_sessions = 1000
 
 
 class PatchedSummaryWriter(SummaryWriter):
@@ -310,7 +317,6 @@ class GraphDataset(Dataset):
         if self.w2v_path is not None:
             w2v_embedder = W2VEmbedding(self.w2v_path)
 
-        data_list = []
         for _, row in tqdm(series_with_events.iterrows(), total=series_with_events.shape[0]):
             idx = row['session']
 
@@ -336,7 +342,7 @@ class GraphDataset(Dataset):
 
             codes, uniques = pd.factorize(session)
             edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
-            # making edge_index unique is not needed as MessagePassing does it with weights addded
+            # making edge_index unique is not needed as MessagePassing does it with weights added
             edge_index = torch.tensor(
                 edge_index, dtype=torch.long)
 
@@ -531,6 +537,7 @@ class GraphDatasetTest(Dataset):
         if self.w2v_path is not None:
             w2v_embedder = W2VEmbedding(self.w2v_path)
 
+        file_num = 0
         for idx in tqdm(sessions_aids.index):
 
             first_list = self.merge_two_lists(
@@ -559,7 +566,8 @@ class GraphDatasetTest(Dataset):
                 data = Data(x=x, edge_index=edge_index,
                             event_type=event_type, session_id=session_id)
                 torch.save(data, osp.join(
-                    self.processed_dir, f'inference__{self.file_name}_{idx}.pt'))
+                    self.processed_dir, f'inference__{self.file_name}_{file_num}.pt'))
+                file_num += 1
 
     def len(self):
         return len(self.processed_file_names)
@@ -604,12 +612,13 @@ class W2VEmbedding():
 
 
 class GatedSessionGraphConv(MessagePassing):
-    def __init__(self, out_channels, aggr: str = 'add', **kwargs):
+    def __init__(self, in_channels, out_channels, aggr: str = 'add', **kwargs):
         super().__init__(aggr=aggr, **kwargs)
 
+        self.in_channels = in_channels
         self.out_channels = out_channels
 
-        self.gru = torch.nn.GRUCell(out_channels, out_channels, bias=False)
+        self.gru = torch.nn.GRUCell(in_channels, out_channels, bias=False)
 
     def forward(self, x, edge_index):
         m = self.propagate(edge_index, x=x, size=None)
@@ -624,38 +633,48 @@ class GatedSessionGraphConv(MessagePassing):
 
 
 class SRGNN(nn.Module):
-    def __init__(self, hidden_size, n_items):
+    def __init__(self, hidden_size, n_items, w2v_size=None, w2v_path=None):
         super(SRGNN, self).__init__()
         self.hidden_size = hidden_size
         self.n_items = n_items
+        if w2v_size is None:
+            self.w2v = False
+            self.embedding = nn.Embedding(self.n_items, self.hidden_size)
+            self.output_size = hidden_size
+        else:
+            self.w2v_size = w2v_size
+            self.w2v = True
+            self.adapter = nn.Linear(self.w2v_size, self.hidden_size)
+            self.output_size = w2v_size
+            w2v_model = Word2Vec.load(w2v_path)
+            self.w2v_vectors = torch.concat([torch.tensor(w2v_model.wv.get_normed_vectors(
+            ), dtype=torch.float32), torch.zeros((len(w2v_model.wv), 2), dtype=torch.float32)], dim=1)
 
-        self.embedding = nn.Embedding(self.n_items, self.hidden_size)
-        self.gated = GatedSessionGraphConv(self.hidden_size)
+        self.gated = GatedSessionGraphConv(
+            self.hidden_size, self.hidden_size)
 
         self.q = nn.Linear(self.hidden_size, 1)
-        self.W_1 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        self.W_1 = nn.Linear(self.hidden_size,
+                             self.hidden_size, bias=False)
         self.W_2 = nn.Linear(self.hidden_size, self.hidden_size)
         self.W_3 = nn.Linear(2 * self.hidden_size,
                              self.hidden_size, bias=False)
 
         self.W_clicks = nn.Linear(self.hidden_size,
-                                  self.hidden_size, bias=False)
+                                  self.output_size, bias=False)
         self.W_carts = nn.Linear(self.hidden_size,
-                                 self.hidden_size, bias=False)
+                                 self.output_size, bias=False)
         self.W_orders = nn.Linear(self.hidden_size,
-                                  self.hidden_size, bias=False)
-
-    def reset_parameters(self):
-        stdv = 1.0 / np.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv)
+                                  self.output_size, bias=False)
 
     def forward(self, data):
         x, edge_index, batch_map = data.x, data.edge_index, data.batch
 
         # (0)
-        embedding = self.embedding(x).squeeze()
-
+        if self.w2v:
+            embedding = self.adapter(x).squeeze()
+        else:
+            embedding = self.embedding(x).squeeze()
         # (1)-(5)
         v_i = self.gated(embedding, edge_index)
 
@@ -694,9 +713,15 @@ class SRGNN(nn.Module):
         x3 = self.W_orders(torch.sigmoid(s_h))
 
         # (8)
-        z1 = torch.mm(self.embedding.weight, x1.T).T
-        z2 = torch.mm(self.embedding.weight, x2.T).T
-        z3 = torch.mm(self.embedding.weight, x3.T).T
+
+        if self.w2v:
+            z1 = torch.mm(self.w2v_vectors, x1.T).T
+            z2 = torch.mm(self.w2v_vectors, x2.T).T
+            z3 = torch.mm(self.w2v_vectors, x3.T).T
+        else:
+            z1 = torch.mm(self.embedding.weight, x1.T).T
+            z2 = torch.mm(self.embedding.weight, x2.T).T
+            z3 = torch.mm(self.embedding.weight, x3.T).T
 
         return z1, z2, z3
 
@@ -704,20 +729,25 @@ class SRGNN(nn.Module):
 def train(config):
     # Prepare data pipeline
     train_dataset = GraphInMemoryDataset(
-        config.data_path, 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
+        config.data_path, 'valid2__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size, w2v_path=config.w2v_path)
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=False,
                               drop_last=True)
     val_dataset = GraphInMemoryDataset(
-        config.data_path, 'valid1__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.dataset_size)
+        config.data_path, 'valid1__test', ignore_idx=config.ignore_idx, use_events=config.use_events, dataset_size=config.valid_sessions, w2v_path=config.w2v_path)
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=False,
                             drop_last=True)
 
     # Build model
-    model = SRGNN(config.hidden_dim, config.num_items).to(config.device)
+    if config.w2v_size:
+        input_vector_size = config.w2v_size + 2
+    else:
+        input_vector_size = None
+    model = SRGNN(config.hidden_dim,
+                  config.num_items, w2v_size=input_vector_size, w2v_path=config.w2v_path).to(config.device)
 
     # Get training components
     optimizer = torch.optim.Adam(model.parameters(),
@@ -836,7 +866,6 @@ def test(loader, test_model, config=CONFIG):
         total_orders += sum(sum([label_orders != config.ignore_idx])).item()
 
     loss_test_total /= len(loader.dataset)
-    print(total_clicks, total_carts, total_orders)
 
     return correct_clicks / total_clicks, correct_carts / total_carts, correct_orders / total_orders, loss_test_total
 
