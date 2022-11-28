@@ -648,8 +648,10 @@ class SRGNN(nn.Module):
             self.adapter = nn.Linear(self.w2v_size, self.hidden_size)
             self.output_size = w2v_size
             w2v_model = Word2Vec.load(w2v_path)
-            self.w2v_vectors = torch.concat([torch.tensor(w2v_model.wv.get_normed_vectors(
-            ), dtype=torch.float32), torch.zeros((len(w2v_model.wv), 2), dtype=torch.float32)], dim=1)
+            vec = torch.tensor(np.vstack([w2v_model.wv.get_vector(str(i))
+                                          for i in tqdm(range(len(w2v_model.wv)))]), dtype=torch.float32)
+            self.w2v_vectors = torch.concat(
+                [vec, torch.zeros((vec.shape[0], 2), dtype=torch.float32)], dim=1)
 
         self.gated = GatedSessionGraphConv(
             self.hidden_size, self.hidden_size)
