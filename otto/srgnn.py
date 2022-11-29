@@ -655,7 +655,7 @@ class SRGNN(nn.Module):
             vec = torch.tensor(np.vstack([w2v_model.wv.get_vector(str(i))
                                           for i in tqdm(range(len(w2v_model.wv)))]), dtype=torch.float32)
             self.w2v_vectors = torch.concat(
-                [vec, torch.zeros((vec.shape[0], 2), dtype=torch.float32)], dim=1)
+                [vec, torch.zeros((vec.shape[0], 2), dtype=torch.float32)], dim=1).to(CONFIG.device)
 
         self.gated = GatedSessionGraphConv(
             self.hidden_size, self.hidden_size)
