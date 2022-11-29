@@ -36,13 +36,13 @@ class CONFIG:
     ignore_idx = 1855607
     dataset_size = None
     use_events = True
-    w2v_path = None
+    w2v_path = 'raw/word2vec.model'
     w2v_size = 100
 
     # model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 128
-    hidden_dim = 128
+    hidden_dim = 102
     epochs = 20
     l2_penalty = 0.00001
     weight_decay = 0.1
@@ -59,7 +59,7 @@ class CONFIG:
         dataset_size = 2000
         batch_size = 32
         epochs = 3
-        hidden_dim = 32
+        hidden_dim = 102
         valid_sessions = 1000
 
 
@@ -214,7 +214,7 @@ class GraphInMemoryDataset(InMemoryDataset):
             y_carts = torch.tensor([y_carts], dtype=torch.long)
             y_orders = torch.tensor([y_orders], dtype=torch.long)
             data_list.append(
-                Data(x=x, edge_index=edge_index, y_clicks=y_clicks, y_carts=y_carts, y_orders=y_orders).contiguous().to(CONFIG.device))
+                Data(x=x, edge_index=edge_index, y_clicks=y_clicks, y_carts=y_carts, y_orders=y_orders).contiguous())
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -358,7 +358,7 @@ class GraphDataset(Dataset):
             y_carts = torch.tensor([y_carts], dtype=torch.long)
             y_orders = torch.tensor([y_orders], dtype=torch.long)
             data = Data(x=x, edge_index=edge_index, y_clicks=y_clicks,
-                        y_carts=y_carts, y_orders=y_orders).contiguous().to(CONFIG.device)
+                        y_carts=y_carts, y_orders=y_orders).contiguous()
 
             if self.w2v_path:
                 torch.save(data, osp.join(
@@ -466,7 +466,7 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
                 event_type = torch.tensor(event_type, dtype=torch.int8)
                 session_id = torch.tensor(idx, dtype=torch.int32)
                 data_list.append(
-                    Data(x=x, edge_index=edge_index, event_type=event_type, session_id=session_id).contiguous().to(CONFIG.device))
+                    Data(x=x, edge_index=edge_index, event_type=event_type, session_id=session_id).contiguous())
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -565,7 +565,7 @@ class GraphDatasetTest(Dataset):
                 event_type = torch.tensor(event_type, dtype=torch.int8)
                 session_id = torch.tensor(idx, dtype=torch.int32)
                 data = Data(x=x, edge_index=edge_index,
-                            event_type=event_type, session_id=session_id)
+                            event_type=event_type, session_id=session_id).contiguous()
                 torch.save(data, osp.join(
                     self.processed_dir, f'inference__{self.file_name}_{file_num}.pt'))
                 file_num += 1
@@ -638,6 +638,7 @@ class SRGNN(nn.Module):
         super(SRGNN, self).__init__()
         self.hidden_size = hidden_size
         self.n_items = n_items
+        self.use_adapter = False
         if w2v_size is None:
             self.w2v = False
             self.embedding = nn.Embedding(self.n_items, self.hidden_size)
@@ -647,6 +648,9 @@ class SRGNN(nn.Module):
             self.w2v = True
             self.adapter = nn.Linear(self.w2v_size, self.hidden_size)
             self.output_size = w2v_size
+            if w2v_size != self.hidden_size:
+                self.use_adapter = True
+
             w2v_model = Word2Vec.load(w2v_path)
             vec = torch.tensor(np.vstack([w2v_model.wv.get_vector(str(i))
                                           for i in tqdm(range(len(w2v_model.wv)))]), dtype=torch.float32)
@@ -679,8 +683,10 @@ class SRGNN(nn.Module):
         x, edge_index, batch_map = data.x, data.edge_index, data.batch
 
         # (0)
-        if self.w2v:
+        if self.use_adapter:
             embedding = self.adapter(x).squeeze()
+        elif self.w2v:
+            embedding = x.squeeze()
         else:
             embedding = self.embedding(x).squeeze()
         # (1)-(5)
