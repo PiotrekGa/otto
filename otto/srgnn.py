@@ -1,15 +1,11 @@
-import os.path as osp
-
 import math
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
 
-from gensim.models import Word2Vec
-
 import torch
-from torch_geometric.data import Data, InMemoryDataset, Dataset
+from torch_geometric.data import Data, InMemoryDataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn.conv import MessagePassing
 import torch.nn as nn
@@ -25,24 +21,24 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
-    debug = True
-
-    # tensorboard
-    log_dir = f'runs/experiment{timestamp}'
-    comment = ''
+    debug = False
 
     # dataset
-    event_type = 'clicks'
+    event_type = 'orders'
     train_set = 'valid2__test'
     valid_set = 'valid3__test'
     data_path = '.'
     dataset_size = None
     use_events = True
 
+    # tensorboard
+    log_dir = f'runs_{event_type}/experiment{timestamp}'
+    comment = ''
+
     # model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 128
-    hidden_dim = 102
+    hidden_dim = 128
     epochs = 20
     l2_penalty = 0.00001
     weight_decay = 0.1
@@ -51,15 +47,23 @@ class CONFIG:
     num_items = 1855608
 
     # validation
-    valid_sessions = 10_000
+    valid_sessions = 100_000
+
+    # submission
+    do_submission = False
+    model_path = f'checkpoints/checkpoint_otto_orders_{epochs-1}.pt'
+    submission_name = 'sub2'
+    submission_size = None
 
     if debug:
         data_path = 'data/'
         dataset_size = 2000
         batch_size = 32
-        epochs = 3
-        hidden_dim = 16
+        epochs = 2
+        hidden_dim = 4
         valid_sessions = 1000
+        submission_size = 1000
+        model_path = f'checkpoints/checkpoint_otto_orders_{epochs-1}.pt'
 
 
 class PatchedSummaryWriter(SummaryWriter):
@@ -177,9 +181,8 @@ class GraphInMemoryDataset(InMemoryDataset):
 
 
 class GraphInMemoryDatasetTest(InMemoryDataset):
-    def __init__(self, root, file_name, event_type, use_events=True, use_subsessions=True, dataset_size=None, transform=None, pre_transform=None):
+    def __init__(self, root, file_name,  use_events=True, use_subsessions=True, dataset_size=None, transform=None, pre_transform=None):
         self.file_name = file_name
-        self.event_type = event_type
         self.use_events = use_events
         self.use_subsessions = use_subsessions
         self.dataset_size = dataset_size
@@ -192,7 +195,7 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return [f'inference__{self.file_name}_{self.event_type}.pt']
+        return [f'inference__{self.file_name}.pt']
 
     def download(self):
         pass
@@ -258,13 +261,12 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
 
 
 class GatedSessionGraphConv(MessagePassing):
-    def __init__(self, in_channels, out_channels, aggr: str = 'add', **kwargs):
+    def __init__(self, out_channels, aggr: str = 'add', **kwargs):
         super().__init__(aggr=aggr, **kwargs)
 
-        self.in_channels = in_channels
         self.out_channels = out_channels
 
-        self.gru = torch.nn.GRUCell(in_channels, out_channels, bias=False)
+        self.gru = torch.nn.GRUCell(out_channels, out_channels, bias=False)
 
     def forward(self, x, edge_index):
         m = self.propagate(edge_index, x=x, size=None)
@@ -324,7 +326,7 @@ class SRGNN(nn.Module):
         q2 = self.W_2(v_i)
 
         # (6)
-        alpha = self.q(F.sigmoid(q1 + q2))
+        alpha = self.q(torch.sigmoid(q1 + q2))
         s_g_split = torch.split(alpha * v_i, sections)
 
         s_g = []
@@ -348,8 +350,9 @@ def train(config):
         config.data_path, config.train_set, config.event_type,  use_events=config.use_events, dataset_size=config.dataset_size)
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
-                              shuffle=False,
+                              shuffle=True,
                               drop_last=True)
+
     val_dataset = GraphInMemoryDataset(
         config.data_path, config.valid_set, config.event_type, use_events=config.use_events, dataset_size=config.valid_sessions)
     val_loader = DataLoader(val_dataset,
@@ -453,26 +456,34 @@ def test(loader, test_model, config=CONFIG):
     return correct, loss_test_total
 
 
-def prepare_kaggle_submission(model, test_loader, event_type, sub_name, k_init=25, k_final=20, debug=False):
+def prepare_kaggle_submission(config, k_init=25, k_final=20, debug=False):
+
+    model = SRGNN(config.hidden_dim,
+                  config.num_items).to(config.device)
+    model.load_state_dict(torch.load(config.model_path))
+
+    dataset = GraphInMemoryDatasetTest(
+        config.data_path, config.valid_set, use_events=config.use_events, dataset_size=config.submission_size)
+
+    loader = DataLoader(dataset,
+                        batch_size=config.batch_size,
+                        shuffle=False,
+                        drop_last=False)
+
     submission = []
-    for _, data in enumerate(tqdm(test_loader)):
+    for _, data in enumerate(tqdm(loader)):
         data.to(CONFIG.device)
         with torch.no_grad():
             # max(dim=1) returns values, indices tuple; only need indices
             score = model(data)
-
-            score = torch.topk(score, k_init)[1]
             score = score.cpu().detach().numpy()
             sessions = data.session_id
 
-        for row in range(score.size(0)):
-
+        for row in range(score.shape[0]):
             sessions_str = str(sessions[row].item()) + '_'
-
-            top_k_pred = score[row]
+            top_k_pred = np.argpartition(score[row], -k_init)[-k_init:]
             top_k_pred = top_k_pred[top_k_pred < 1855603][:k_final]
-            sessions_str = sessions_str + 'clicks'
-
+            sessions_str = sessions_str + config.event_type
             top_k_pred = ' '.join(list(top_k_pred.astype(str)))
             submission.append([sessions_str, top_k_pred])
         torch.cuda.empty_cache()
@@ -481,8 +492,11 @@ def prepare_kaggle_submission(model, test_loader, event_type, sub_name, k_init=2
                 break
 
     submission = pd.DataFrame(submission, columns=['session_type', 'labels'])
-    submission.to_csv(f'{sub_name}_{event_type}.csv', index=False)
+    submission.to_csv(
+        f'{config.submission_name}_{config.event_type}.csv', index=False)
 
 
 if __name__ == '__main__':
     model = train(CONFIG)
+    if CONFIG.do_submission:
+        prepare_kaggle_submission(CONFIG)
