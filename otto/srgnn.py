@@ -21,7 +21,7 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
-    debug = False
+    debug = True
 
     # dataset
     event_type = 'orders'
@@ -47,7 +47,10 @@ class CONFIG:
     num_items = 1855608
 
     # validation
-    valid_sessions = 100_000
+    if event_type == 'clicks':
+        valid_sessions = 100_000
+    else:
+        valid_sessions = 500_000
 
     # submission
     do_submission = False
@@ -151,7 +154,7 @@ class GraphInMemoryDataset(InMemoryDataset):
         series.columns = ['session', 'aid']
 
         data_list = []
-        for _, row in tqdm(series.iterrows(), total=series.shape[0]):
+        for _, row in series.iterrows():
             idx = row['session']
 
             first_list = self.merge_two_lists(
@@ -237,7 +240,7 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
         del sessions
 
         data_list = []
-        for idx in tqdm(sessions_aids.index):
+        for idx in sessions_aids.index:
 
             first_list = self.merge_two_lists(
                 sessions_type[idx], sessions_aids[idx])
@@ -415,12 +418,13 @@ def train(config):
 
         scheduler.step()
 
-        test_acc, loss_test = test(
+        test_acc, loss_test, top_k_correct = test(
             val_loader, model)
-        print(test_acc)
+        print(test_acc, loss_test, total_loss, top_k_correct)
 
         writer.add_scalar('Accuracy/test_acc',
                           test_acc, epoch + 1)
+        writer.add_scalar('Accuracy/top_20_correct', top_k_correct, epoch + 1)
         writer.add_scalar('Loss/test', loss_test, epoch + 1)
 
     writer.close()
@@ -435,6 +439,7 @@ def test(loader, test_model, config=CONFIG):
 
     criterion = nn.CrossEntropyLoss()
     loss_test_total = 0
+    top_k_correct = 0
 
     for _, data in enumerate(tqdm(loader)):
         data.to(config.device)
@@ -450,10 +455,16 @@ def test(loader, test_model, config=CONFIG):
 
         correct += pred.eq(label).sum().item()
 
+        for row in range(pred.size(0)):
+            top_k_pred = np.argpartition(score[row].cpu(), -20)[-20:]
+            if label[row].item() in top_k_pred:
+                top_k_correct += 1
+
     loss_test_total /= len(loader.dataset)
     correct /= len(loader.dataset)
+    top_k_correct /= len(loader.dataset)
 
-    return correct, loss_test_total
+    return correct, loss_test_total, top_k_correct
 
 
 def prepare_kaggle_submission(config, k_init=25, k_final=20, debug=False):
