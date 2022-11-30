@@ -29,7 +29,8 @@ class CONFIG:
     valid_set = 'valid3__test'
     data_path = '.'
     dataset_size = None
-    use_events = True
+    use_events = False
+    use_subsessions = False
 
     # tensorboard
     log_dir = f'runs_{event_type}/experiment{timestamp}'
@@ -48,9 +49,9 @@ class CONFIG:
 
     # validation
     if event_type == 'clicks':
-        valid_sessions = 100_000
+        valid_sessions = 10_000
     else:
-        valid_sessions = 500_000
+        valid_sessions = 50_000
 
     # submission
     do_submission = False
@@ -60,11 +61,11 @@ class CONFIG:
 
     if debug:
         data_path = 'data/'
-        dataset_size = 2000
+        dataset_size = 10000
         batch_size = 32
-        epochs = 2
-        hidden_dim = 4
-        valid_sessions = 1000
+        epochs = 5
+        hidden_dim = 32
+        valid_sessions = 5000
         submission_size = 1000
         model_path = f'checkpoints/checkpoint_otto_orders_{epochs-1}.pt'
 
@@ -134,6 +135,13 @@ class GraphInMemoryDataset(InMemoryDataset):
         labels = pd.read_json(raw_data_file2, lines=True).set_index(
             'session')['labels'].iloc[:self.dataset_size]
 
+        aid_cnts = sessions.aid.value_counts()
+        aid_cnts = aid_cnts[aid_cnts < 5]
+        aid_cnts = aid_cnts * 0 + 1855607
+        sessions['aid'] = sessions.aid.map(
+            aid_cnts).fillna(sessions.aid).astype(np.int32)
+        aid_cnts = set(aid_cnts.index)
+
         sessions = self.create_sessions(sessions)
 
         sessions_aids = sessions.groupby('session')['aid'].apply(list)
@@ -155,29 +163,36 @@ class GraphInMemoryDataset(InMemoryDataset):
 
         data_list = []
         for _, row in series.iterrows():
-            idx = row['session']
 
-            first_list = self.merge_two_lists(
-                sessions_type[idx], sessions_aids[idx])
-            second_list = self.merge_two_lists(
-                sessions_subs[idx], [-1] * len(sessions_subs[idx]))
-            long_list = self.merge_two_lists(second_list, first_list)
-            long_list = [i for i in long_list if i >= 0]
+            if row['aid'] not in aid_cnts:
 
-            long_list = long_list + [1855603]
-            session, y = long_list, row['aid']
+                idx = row['session']
 
-            codes, uniques = pd.factorize(session)
-            edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
-            # making edge_index unique is not needed as MessagePassing does it with weights addded
-            edge_index = torch.tensor(
-                edge_index, dtype=torch.long)
+                if self.use_events:
+                    first_list = self.merge_two_lists(
+                        sessions_type[idx], sessions_aids[idx])
+                else:
+                    first_list = sessions_aids[idx]
 
-            x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
+                if self.use_subsessions:
+                    second_list = self.merge_two_lists(
+                        sessions_subs[idx], [-1] * len(sessions_subs[idx]))
+                    long_list = self.merge_two_lists(second_list, first_list)
+                    session = [i for i in long_list if i >= 0]
+                else:
+                    session = first_list
 
-            y = torch.tensor([y], dtype=torch.long)
-            data_list.append(
-                Data(x=x, edge_index=edge_index, y=y).contiguous())
+                codes, uniques = pd.factorize(session)
+                edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
+                # making edge_index unique is not needed as MessagePassing does it with weights addded
+                edge_index = torch.tensor(
+                    edge_index, dtype=torch.long)
+
+                x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
+
+                y = torch.tensor([row['aid']], dtype=torch.long)
+                data_list.append(
+                    Data(x=x, edge_index=edge_index, y=y).contiguous())
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -242,12 +257,19 @@ class GraphInMemoryDatasetTest(InMemoryDataset):
         data_list = []
         for idx in sessions_aids.index:
 
-            first_list = self.merge_two_lists(
-                sessions_type[idx], sessions_aids[idx])
-            second_list = self.merge_two_lists(
-                sessions_subs[idx], [-1] * len(sessions_subs[idx]))
-            long_list = self.merge_two_lists(second_list, first_list)
-            session = [i for i in long_list if i >= 0]
+            if self.use_events:
+                first_list = self.merge_two_lists(
+                    sessions_type[idx], sessions_aids[idx])
+            else:
+                first_list = sessions_aids[idx]
+
+            if self.use_subsessions:
+                second_list = self.merge_two_lists(
+                    sessions_subs[idx], [-1] * len(sessions_subs[idx]))
+                long_list = self.merge_two_lists(second_list, first_list)
+                session = [i for i in long_list if i >= 0]
+            else:
+                session = first_list
 
             codes, uniques = pd.factorize(session)
             edge_index = np.array([codes[:-1], codes[1:]], dtype=np.int32)
@@ -350,14 +372,14 @@ class SRGNN(nn.Module):
 def train(config):
     # Prepare data pipeline
     train_dataset = GraphInMemoryDataset(
-        config.data_path, config.train_set, config.event_type,  use_events=config.use_events, dataset_size=config.dataset_size)
+        config.data_path, config.train_set, config.event_type, use_subsessions=config.use_subsessions, use_events=config.use_events, dataset_size=config.dataset_size)
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=True,
                               drop_last=True)
 
     val_dataset = GraphInMemoryDataset(
-        config.data_path, config.valid_set, config.event_type, use_events=config.use_events, dataset_size=config.valid_sessions)
+        config.data_path, config.valid_set, config.event_type, use_subsessions=config.use_subsessions, use_events=config.use_events, dataset_size=config.valid_sessions)
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=True,
@@ -420,7 +442,7 @@ def train(config):
 
         test_acc, loss_test, top_k_correct = test(
             val_loader, model)
-        print(test_acc, loss_test, total_loss, top_k_correct)
+        print('EPOCH', epoch, test_acc, loss_test, total_loss, top_k_correct)
 
         writer.add_scalar('Accuracy/test_acc',
                           test_acc, epoch + 1)
@@ -474,7 +496,7 @@ def prepare_kaggle_submission(config, k_init=25, k_final=20, debug=False):
     model.load_state_dict(torch.load(config.model_path))
 
     dataset = GraphInMemoryDatasetTest(
-        config.data_path, config.valid_set, use_events=config.use_events, dataset_size=config.submission_size)
+        config.data_path, config.valid_set, use_events=config.use_events, use_subsessions=config.use_subsessions, dataset_size=config.submission_size)
 
     loader = DataLoader(dataset,
                         batch_size=config.batch_size,
