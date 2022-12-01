@@ -24,9 +24,8 @@ class CONFIG:
     debug = True
 
     # dataset
-    event_type = 'orders'
-    train_set = 'valid2__test'
-    valid_set = 'valid3__test'
+    event_type = 'clicks'
+    train_set = 'valid3__test'
     data_path = '.'
     dataset_size = None
     use_events = False
@@ -45,7 +44,7 @@ class CONFIG:
     weight_decay = 0.1
     step = 3
     lr = 0.001
-    num_items = 1855608
+    num_items = 1855603
 
     # validation
     if event_type == 'clicks':
@@ -61,11 +60,11 @@ class CONFIG:
 
     if debug:
         data_path = 'data/'
-        dataset_size = 100000
+        dataset_size = 10000
         batch_size = 32
         epochs = 5
         hidden_dim = 32
-        valid_sessions = 5000
+        valid_sessions = 2000
         submission_size = 1000
         model_path = f'checkpoints/checkpoint_otto_{event_type}_{epochs-1}.pt'
 
@@ -89,26 +88,28 @@ class PatchedSummaryWriter(SummaryWriter):
 
 
 class GraphInMemoryDataset(InMemoryDataset):
-    def __init__(self, root, file_name, event_type, inference=False, dataset_size=None, transform=None, pre_transform=None):
+    def __init__(self, root, file_name, event_type, dataset_type='inference', dataset_size=None, transform=None, pre_transform=None):
         self.file_name = file_name
         self.event_type = event_type
         mapper = {'clicks': 0, 'carts': 1, 'orders': 2}
         self.event_code = mapper[event_type]
-        self.inference = inference
+        self.dataset_type = dataset_type
         self.dataset_size = dataset_size
         super().__init__(root, transform, pre_transform)
         self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
     def raw_file_names(self):
-        return [f'{self.file_name}.parquet']
+        return [f'{self.file_name}.parquet', f'{self.file_name}_labels.jsonl']
 
     @property
     def processed_file_names(self):
-        if self.inference:
+        if self.dataset_type == 'inference':
             return [f'inference_{self.file_name}_{self.event_type}.pt']
+        elif self.dataset_type == 'validation':
+            return [f'validation_{self.file_name}_{self.event_type}.pt']
         else:
-            return [f'{self.file_name}_{self.event_type}.pt']
+            return [f'train_{self.file_name}_{self.event_type}.pt']
 
     def download(self):
         pass
@@ -117,12 +118,15 @@ class GraphInMemoryDataset(InMemoryDataset):
         raw_data_file1 = f'{self.raw_dir}/{self.raw_file_names[0]}'
         sessions = pd.read_parquet(raw_data_file1).iloc[:self.dataset_size, :]
 
+        if self.dataset_type == 'validation':
+            raw_data_file2 = f'{self.raw_dir}/{self.raw_file_names[1]}'
+            labels = pd.read_json(raw_data_file2, lines=True).set_index(
+                'session')['labels']
+
         types = sessions.groupby('session')['type'].apply(list)
         sessions = sessions.groupby('session')['aid'].apply(list)
 
-        if self.inference:
-            sessions = sessions.to_frame()
-        else:
+        if self.dataset_type == 'train':
             aids = sessions.loc[sessions.apply(len) > 1]
             types = types.loc[types.apply(len) > 1]
 
@@ -136,11 +140,20 @@ class GraphInMemoryDataset(InMemoryDataset):
             type_idx = types.apply(lambda x: x.index(self.event_code))
             sessions = pd.concat([aids, types, type_idx], axis=1)
             sessions.columns = ['aid', 'types', 'idx']
+        else:
+            sessions = sessions.to_frame()
 
         data_list = []
-        for _, row in sessions.iterrows():
-            if self.inference:
+        for idx, row in sessions.iterrows():
+            if self.dataset_type == 'inference':
                 seq = row.aid
+            elif self.dataset_type == 'validation':
+                seq = row.aid
+                y = labels[idx].get(self.event_type)
+                if y is None:
+                    y = [-1]
+                elif isinstance(y, int):
+                    y = [y]
             else:
                 y = torch.tensor([row.aid[row.idx]], dtype=torch.long)
                 seq = row.aid[row.idx + 1:][::-1]
@@ -151,10 +164,13 @@ class GraphInMemoryDataset(InMemoryDataset):
 
             x = torch.tensor(uniques, dtype=torch.long).unsqueeze(1)
 
-            if self.inference:
+            if self.dataset_type == 'inference':
                 data_list.append(
                     Data(x=x, edge_index=edge_index).contiguous())
-            else:
+            elif self.dataset_type == 'validation' and y[0] >= 0:
+                data_list.append(
+                    Data(x=x, edge_index=edge_index, y=y).contiguous())
+            elif self.dataset_type == 'train':
                 data_list.append(
                     Data(x=x, edge_index=edge_index, y=y).contiguous())
 
@@ -249,14 +265,14 @@ class SRGNN(nn.Module):
 def train(config):
     # Prepare data pipeline
     train_dataset = GraphInMemoryDataset(
-        config.data_path, config.train_set, config.event_type, dataset_size=config.dataset_size)
+        config.data_path, config.train_set, config.event_type, dataset_type='train', dataset_size=config.dataset_size)
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=True,
                               drop_last=True)
 
     val_dataset = GraphInMemoryDataset(
-        config.data_path, config.valid_set, config.event_type, dataset_size=config.valid_sessions)
+        config.data_path, config.train_set, config.event_type, dataset_type='validation', dataset_size=config.valid_sessions)
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=True,
@@ -317,14 +333,11 @@ def train(config):
 
         scheduler.step()
 
-        test_acc, loss_test, top_k_correct = test(
+        top_k_correct = test(
             val_loader, model)
-        print('EPOCH', epoch, test_acc, loss_test, total_loss, top_k_correct)
+        print('EPOCH', epoch, total_loss, top_k_correct)
 
-        writer.add_scalar('Accuracy/test_acc',
-                          test_acc, epoch + 1)
         writer.add_scalar('Accuracy/top_20_correct', top_k_correct, epoch + 1)
-        writer.add_scalar('Loss/test', loss_test, epoch + 1)
 
     writer.close()
 
@@ -334,10 +347,6 @@ def train(config):
 def test(loader, test_model, config=CONFIG):
     test_model.eval()
 
-    correct = 0
-
-    criterion = nn.CrossEntropyLoss()
-    loss_test_total = 0
     top_k_correct = 0
 
     for _, data in enumerate(tqdm(loader)):
@@ -346,67 +355,23 @@ def test(loader, test_model, config=CONFIG):
             # max(dim=1) returns values, indices tuple; only need indices
             score = test_model(data)
             pred = score.max(dim=1)[1]
-            label = data.y
-
-            loss_test = criterion(score, label)
-
-            loss_test_total += loss_test.item() * data.num_graphs
-
-        correct += pred.eq(label).sum().item()
+            labels = data.y
 
         for row in range(pred.size(0)):
             top_k_pred = np.argpartition(score[row].cpu(), -20)[-20:]
-            if label[row].item() in top_k_pred:
-                top_k_correct += 1
+            cnt = 0
+            correct = 0
+            for label in labels[row]:
+                cnt += 1
+                if label in top_k_pred:
+                    correct += 1
+            cnt = min(20, cnt)
+            top_k_correct += correct / cnt
 
-    loss_test_total /= len(loader.dataset)
-    correct /= len(loader.dataset)
     top_k_correct /= len(loader.dataset)
 
-    return correct, loss_test_total, top_k_correct
-
-
-def prepare_kaggle_submission(config, k_init=25, k_final=20, debug=False):
-
-    model = SRGNN(config.hidden_dim,
-                  config.num_items).to(config.device)
-    model.load_state_dict(torch.load(config.model_path))
-
-    dataset = GraphInMemoryDataset(
-        config.data_path, config.valid_set, use_events=config.use_events, use_subsessions=config.use_subsessions, dataset_size=config.submission_size)
-
-    loader = DataLoader(dataset,
-                        batch_size=config.batch_size,
-                        shuffle=False,
-                        drop_last=False)
-
-    submission = []
-    for _, data in enumerate(tqdm(loader)):
-        data.to(CONFIG.device)
-        with torch.no_grad():
-            # max(dim=1) returns values, indices tuple; only need indices
-            score = model(data)
-            score = score.cpu().detach().numpy()
-            sessions = data.session_id
-
-        for row in range(score.shape[0]):
-            sessions_str = str(sessions[row].item()) + '_'
-            top_k_pred = np.argpartition(score[row], -k_init)[-k_init:]
-            top_k_pred = top_k_pred[top_k_pred < 1855603][:k_final]
-            sessions_str = sessions_str + config.event_type
-            top_k_pred = ' '.join(list(top_k_pred.astype(str)))
-            submission.append([sessions_str, top_k_pred])
-        torch.cuda.empty_cache()
-        if debug:
-            if len(submission) > 1000:
-                break
-
-    submission = pd.DataFrame(submission, columns=['session_type', 'labels'])
-    submission.to_csv(
-        f'{config.submission_name}_{config.event_type}.csv', index=False)
+    return top_k_correct
 
 
 if __name__ == '__main__':
     model = train(CONFIG)
-    if CONFIG.do_submission:
-        prepare_kaggle_submission(CONFIG)
