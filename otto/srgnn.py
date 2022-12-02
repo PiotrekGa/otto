@@ -42,7 +42,7 @@ class CONFIG:
     weight_decay = 0.1
     step = 3
     lr = 0.001
-    num_items = 1855603
+    num_items = 1855604
 
     # validation
     if event_type == 'clicks':
@@ -58,11 +58,11 @@ class CONFIG:
 
     if debug:
         data_path = 'data/'
-        dataset_size = 10000
+        dataset_size = 20000
         batch_size = 32
         epochs = 2
         hidden_dim = 32
-        valid_sessions = 2000
+        valid_sessions = 5000
         submission_size = 5000
         model_path = f'checkpoints/checkpoint_otto_{event_type}_{epochs-1}.pt'
 
@@ -86,12 +86,13 @@ class PatchedSummaryWriter(SummaryWriter):
 
 
 class GraphInMemoryDataset(InMemoryDataset):
-    def __init__(self, root, file_name, event_type, dataset_type='inference', dataset_size=None, transform=None, pre_transform=None):
+    def __init__(self, root, file_name, event_type, dataset_type='inference', min_aid_cnt=5, dataset_size=None, transform=None, pre_transform=None):
         self.file_name = file_name
         self.event_type = event_type
         mapper = {'clicks': 0, 'carts': 1, 'orders': 2}
         self.event_code = mapper[event_type]
         self.dataset_type = dataset_type
+        self.min_aid_cnt = min_aid_cnt
         self.dataset_size = dataset_size
         super().__init__(root, transform, pre_transform)
         self.data, self.slices = torch.load(self.processed_paths[0])
@@ -121,10 +122,18 @@ class GraphInMemoryDataset(InMemoryDataset):
             labels = pd.read_json(raw_data_file2, lines=True).set_index(
                 'session')['labels']
 
+        if self.dataset_type == 'train':
+            aid_cnt = sessions.groupby('aid').count()['ts']
+            aid_cnt = aid_cnt[aid_cnt < self.min_aid_cnt]
+            aid_cnt = (aid_cnt - aid_cnt) + 1855603
+            sessions.aid = sessions.aid.map(aid_cnt).fillna(
+                sessions.aid).astype(np.int32)
+
         types = sessions.groupby('session')['type'].apply(list)
         sessions = sessions.groupby('session')['aid'].apply(list)
 
         if self.dataset_type == 'train':
+
             aids = sessions.loc[sessions.apply(len) > 1]
             types = types.loc[types.apply(len) > 1]
 
@@ -357,7 +366,8 @@ def test(loader, test_model, config=CONFIG):
             labels = data.y
 
         for row in range(pred.size(0)):
-            top_k_pred = np.argpartition(score[row].cpu(), -20)[-20:]
+            top_k_pred = np.argpartition(score[row].cpu(), -21)[-20:]
+            top_k_pred = top_k_pred[top_k_pred < 1855603]
             cnt = 0
             correct = 0
             for label in labels[row]:
@@ -395,7 +405,7 @@ def prepare_kaggle_submission(config, k=20, debug=False):
             # max(dim=1) returns values, indices tuple; only need indices
             score = model(data)
 
-            score = torch.topk(score, k)[1]
+            score = torch.topk(score, k+1)[1]
             score = score.cpu().detach().numpy()
 
             sessions = data.session_id
@@ -405,6 +415,7 @@ def prepare_kaggle_submission(config, k=20, debug=False):
             sessions_str = str(sessions[row].item()) + '_' + config.event_type
 
             top_k_pred = score[row]
+            top_k_pred = top_k_pred[top_k_pred < 1855603][-k:]
 
             top_k_pred = ' '.join(list(top_k_pred.astype(str)))
             submission.append([sessions_str, top_k_pred])
@@ -420,6 +431,30 @@ def prepare_kaggle_submission(config, k=20, debug=False):
 
 
 if __name__ == '__main__':
-    # model = train(CONFIG)
+    model = train(CONFIG)
     if CONFIG.do_submission:
         prepare_kaggle_submission(CONFIG)
+
+
+# Processing...
+# Done!
+# Processing...
+# Done!
+# 100%|██████████| 7487/7487 [39:15<00:00,  3.18it/s]
+# 100%|██████████| 138/138 [06:08<00:00,  2.67s/it]
+# EPOCH 0 12.692613686315566 0.14866926597728428
+# 100%|██████████| 7487/7487 [38:06<00:00,  3.27it/s]
+# 100%|██████████| 138/138 [05:05<00:00,  2.22s/it]
+# EPOCH 1 11.313251149135843 0.1923489857037916
+# 100%|██████████| 7487/7487 [38:07<00:00,  3.27it/s]
+# 100%|██████████| 138/138 [05:32<00:00,  2.41s/it]
+# EPOCH 2 10.040082277923373 0.23919308357348704
+# 100%|██████████| 7487/7487 [38:06<00:00,  3.27it/s]
+# 100%|██████████| 138/138 [05:54<00:00,  2.57s/it]
+# EPOCH 3 8.122315542718958 0.2581228456800588
+# 100%|██████████| 7487/7487 [38:09<00:00,  3.27it/s]
+# 100%|██████████| 138/138 [05:45<00:00,  2.51s/it]
+# EPOCH 4 7.48146870463672 0.26659885856359833
+# 100%|██████████| 7487/7487 [38:06<00:00,  3.27it/s]
+# 100%|██████████| 138/138 [06:11<00:00,  2.69s/it]
+# EPOCH 5 6.9191174279076035 0.2724190540769622
