@@ -24,12 +24,10 @@ class CONFIG:
     debug = True
 
     # dataset
-    event_type = 'clicks'
+    event_type = 'orders'
     train_set = 'valid3__test'
     data_path = '.'
     dataset_size = None
-    use_events = False
-    use_subsessions = False
 
     # tensorboard
     log_dir = f'runs_{event_type}/experiment{timestamp}'
@@ -53,7 +51,7 @@ class CONFIG:
         valid_sessions = 50_000
 
     # submission
-    do_submission = False
+    do_submission = True
     model_path = f'checkpoints/checkpoint_otto_{event_type}_{epochs-1}.pt'
     submission_name = 'sub2'
     submission_size = None
@@ -62,10 +60,10 @@ class CONFIG:
         data_path = 'data/'
         dataset_size = 10000
         batch_size = 32
-        epochs = 5
+        epochs = 2
         hidden_dim = 32
         valid_sessions = 2000
-        submission_size = 1000
+        submission_size = 5000
         model_path = f'checkpoints/checkpoint_otto_{event_type}_{epochs-1}.pt'
 
 
@@ -147,6 +145,7 @@ class GraphInMemoryDataset(InMemoryDataset):
         for idx, row in sessions.iterrows():
             if self.dataset_type == 'inference':
                 seq = row.aid
+                session_id = torch.tensor([idx], dtype=torch.long)
             elif self.dataset_type == 'validation':
                 seq = row.aid
                 y = labels[idx].get(self.event_type)
@@ -166,7 +165,7 @@ class GraphInMemoryDataset(InMemoryDataset):
 
             if self.dataset_type == 'inference':
                 data_list.append(
-                    Data(x=x, edge_index=edge_index).contiguous())
+                    Data(x=x, edge_index=edge_index, session_id=session_id).contiguous())
             elif self.dataset_type == 'validation' and y[0] >= 0:
                 data_list.append(
                     Data(x=x, edge_index=edge_index, y=y).contiguous())
@@ -373,5 +372,54 @@ def test(loader, test_model, config=CONFIG):
     return top_k_correct
 
 
+def prepare_kaggle_submission(config, k=20, debug=False):
+
+    test_dataset = GraphInMemoryDataset(
+        config.data_path, config.train_set, config.event_type, dataset_type='inference', dataset_size=config.submission_size)
+    test_loader = DataLoader(test_dataset,
+                             batch_size=config.batch_size,
+                             shuffle=True,
+                             drop_last=True)
+
+    # Build model
+    model = SRGNN(config.hidden_dim,
+                  config.num_items)
+
+    model.load_state_dict(torch.load(config.model_path))
+    model.to(config.device)
+
+    submission = []
+    for _, data in enumerate(tqdm(test_loader)):
+        data.to(CONFIG.device)
+        with torch.no_grad():
+            # max(dim=1) returns values, indices tuple; only need indices
+            score = model(data)
+
+            score = torch.topk(score, k)[1]
+            score = score.cpu().detach().numpy()
+
+            sessions = data.session_id
+
+        for row in range(score.shape[0]):
+
+            sessions_str = str(sessions[row].item()) + '_' + config.event_type
+
+            top_k_pred = score[row]
+
+            top_k_pred = ' '.join(list(top_k_pred.astype(str)))
+            submission.append([sessions_str, top_k_pred])
+        torch.cuda.empty_cache()
+        if debug:
+            if len(submission) > 1000:
+                break
+
+    submission = pd.DataFrame(submission, columns=['session_type', 'labels'])
+    submission.to_csv(
+        f'{config.submission_name}_{config.event_type}.csv', index=False)
+    return submission
+
+
 if __name__ == '__main__':
-    model = train(CONFIG)
+    # model = train(CONFIG)
+    if CONFIG.do_submission:
+        prepare_kaggle_submission(CONFIG)
