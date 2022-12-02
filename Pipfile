@@ -17,6 +17,7 @@ merlin-dataloader = "*"
 polars = "*"
 beartype = "*"
 torch = "*"
+numba = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"

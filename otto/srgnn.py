@@ -28,6 +28,9 @@ class CONFIG:
     train_set = 'valid3__test'
     data_path = '.'
     dataset_size = None
+    min_aid_cnt = 5
+    mapper = None
+    num_items = None
 
     # tensorboard
     log_dir = f'runs_{event_type}/experiment{timestamp}'
@@ -42,7 +45,6 @@ class CONFIG:
     weight_decay = 0.1
     step = 3
     lr = 0.001
-    num_items = 1855604
 
     # validation
     if event_type == 'clicks':
@@ -58,11 +60,11 @@ class CONFIG:
 
     if debug:
         data_path = 'data/'
-        dataset_size = 20000
-        batch_size = 32
-        epochs = 2
-        hidden_dim = 32
-        valid_sessions = 5000
+        dataset_size = None
+        batch_size = 128
+        epochs = 20
+        hidden_dim = 128
+        valid_sessions = 50000
         submission_size = 5000
         model_path = f'checkpoints/checkpoint_otto_{event_type}_{epochs-1}.pt'
 
@@ -86,20 +88,20 @@ class PatchedSummaryWriter(SummaryWriter):
 
 
 class GraphInMemoryDataset(InMemoryDataset):
-    def __init__(self, root, file_name, event_type, dataset_type='inference', min_aid_cnt=5, dataset_size=None, transform=None, pre_transform=None):
+    def __init__(self, root, file_name, event_type, dataset_type='inference', mapper=None, dataset_size=None, transform=None, pre_transform=None):
         self.file_name = file_name
         self.event_type = event_type
-        mapper = {'clicks': 0, 'carts': 1, 'orders': 2}
-        self.event_code = mapper[event_type]
+        mapper_et = {'clicks': 0, 'carts': 1, 'orders': 2}
+        self.event_code = mapper_et[event_type]
         self.dataset_type = dataset_type
-        self.min_aid_cnt = min_aid_cnt
         self.dataset_size = dataset_size
+        self.mapper = mapper
         super().__init__(root, transform, pre_transform)
         self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
     def raw_file_names(self):
-        return [f'{self.file_name}.parquet', f'{self.file_name}_labels.jsonl']
+        return [f'{self.file_name}_temp.parquet', f'{self.file_name}_labels.jsonl']
 
     @property
     def processed_file_names(self):
@@ -122,13 +124,6 @@ class GraphInMemoryDataset(InMemoryDataset):
             labels = pd.read_json(raw_data_file2, lines=True).set_index(
                 'session')['labels']
 
-        if self.dataset_type == 'train':
-            aid_cnt = sessions.groupby('aid').count()['ts']
-            aid_cnt = aid_cnt[aid_cnt < self.min_aid_cnt]
-            aid_cnt = (aid_cnt - aid_cnt) + 1855603
-            sessions.aid = sessions.aid.map(aid_cnt).fillna(
-                sessions.aid).astype(np.int32)
-
         types = sessions.groupby('session')['type'].apply(list)
         sessions = sessions.groupby('session')['aid'].apply(list)
 
@@ -150,6 +145,8 @@ class GraphInMemoryDataset(InMemoryDataset):
         else:
             sessions = sessions.to_frame()
 
+        session_valid = True
+
         data_list = []
         for idx, row in sessions.iterrows():
             if self.dataset_type == 'inference':
@@ -159,9 +156,11 @@ class GraphInMemoryDataset(InMemoryDataset):
                 seq = row.aid
                 y = labels[idx].get(self.event_type)
                 if y is None:
-                    y = [-1]
+                    session_valid = False
                 elif isinstance(y, int):
-                    y = [y]
+                    y = [self.mapper.get(y, -1)]
+                else:
+                    y = [self.mapper.get(i, -1) for i in y]
             else:
                 y = torch.tensor([row.aid[row.idx]], dtype=torch.long)
                 seq = row.aid[row.idx + 1:][::-1]
@@ -175,7 +174,7 @@ class GraphInMemoryDataset(InMemoryDataset):
             if self.dataset_type == 'inference':
                 data_list.append(
                     Data(x=x, edge_index=edge_index, session_id=session_id).contiguous())
-            elif self.dataset_type == 'validation' and y[0] >= 0:
+            elif self.dataset_type == 'validation' and session_valid:
                 data_list.append(
                     Data(x=x, edge_index=edge_index, y=y).contiguous())
             elif self.dataset_type == 'train':
@@ -271,16 +270,46 @@ class SRGNN(nn.Module):
 
 
 def train(config):
+
+    df = pd.read_parquet(
+        f'{config.data_path}/raw/{config.train_set}.parquet')
+
+    max_aid = df.aid.max()
+    aid_cnt = df.groupby('aid').count()['ts']
+    aid_cnt = aid_cnt[aid_cnt < 5]
+    aid_cnt = aid_cnt * 0 + max_aid + 1
+    df.aid = df.aid.map(aid_cnt).fillna(df.aid).astype(np.int32)
+    mapper = df.aid.drop_duplicates()
+    mapper.sort_values(inplace=True)
+    mapper.reset_index(inplace=True, drop=True)
+    config.mapper = mapper
+    config.num_items = len(mapper)
+    mapper_inv = {mapper[i]: i for i in mapper.index}
+    df.aid = df.aid.map(mapper_inv)
+    df.to_parquet(
+        f'{config.data_path}/raw/{config.train_set}_temp.parquet')
+
     # Prepare data pipeline
     train_dataset = GraphInMemoryDataset(
-        config.data_path, config.train_set, config.event_type, dataset_type='train', dataset_size=config.dataset_size)
+        config.data_path,
+        config.train_set,
+        config.event_type,
+        dataset_type='train',
+        dataset_size=config.dataset_size)
+
     train_loader = DataLoader(train_dataset,
                               batch_size=config.batch_size,
                               shuffle=True,
                               drop_last=True)
 
     val_dataset = GraphInMemoryDataset(
-        config.data_path, config.train_set, config.event_type, dataset_type='validation', dataset_size=config.valid_sessions)
+        config.data_path,
+        config.train_set,
+        config.event_type,
+        mapper=mapper_inv,
+        dataset_type='validation',
+        dataset_size=config.valid_sessions)
+
     val_loader = DataLoader(val_dataset,
                             batch_size=config.batch_size,
                             shuffle=True,
@@ -367,7 +396,7 @@ def test(loader, test_model, config=CONFIG):
 
         for row in range(pred.size(0)):
             top_k_pred = np.argpartition(score[row].cpu(), -21)[-20:]
-            top_k_pred = top_k_pred[top_k_pred < 1855603]
+            top_k_pred = top_k_pred[top_k_pred < (config.num_items - 1)]
             cnt = 0
             correct = 0
             for label in labels[row]:
@@ -415,9 +444,9 @@ def prepare_kaggle_submission(config, k=20, debug=False):
             sessions_str = str(sessions[row].item()) + '_' + config.event_type
 
             top_k_pred = score[row]
-            top_k_pred = top_k_pred[top_k_pred < 1855603][-k:]
-
-            top_k_pred = ' '.join(list(top_k_pred.astype(str)))
+            top_k_pred = top_k_pred[top_k_pred < (config.num_items - 1)][-k:]
+            top_k_pred = [str(config.mapper[i]) for i in top_k_pred]
+            top_k_pred = ' '.join(top_k_pred)
             submission.append([sessions_str, top_k_pred])
         torch.cuda.empty_cache()
         if debug:
