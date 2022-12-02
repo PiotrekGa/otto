@@ -21,12 +21,12 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
-    debug = True
+    debug = False
 
     # dataset
     event_type = 'orders'
     train_set = 'valid3__test'
-    data_path = '.'
+    data_path = 'data/'
     dataset_size = None
     min_aid_cnt = 5
     mapper = None
@@ -39,21 +39,21 @@ class CONFIG:
     # model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 128
-    hidden_dim = 128
-    epochs = 20
+    hidden_dim = 64
+    epochs = 30
     l2_penalty = 0.00001
     weight_decay = 0.1
-    step = 3
+    step = 5
     lr = 0.001
 
     # validation
     if event_type == 'clicks':
-        valid_sessions = 10_000
+        valid_sessions = 200_000
     else:
-        valid_sessions = 50_000
+        valid_sessions = 1_000_000
 
     # submission
-    do_submission = True
+    do_submission = False
     model_path = f'checkpoints/checkpoint_otto_{event_type}_{epochs-1}.pt'
     submission_name = 'sub2'
     submission_size = None
@@ -64,7 +64,7 @@ class CONFIG:
         batch_size = 128
         epochs = 20
         hidden_dim = 128
-        valid_sessions = 50000
+        valid_sessions = 1_000_000
         submission_size = 5000
         model_path = f'checkpoints/checkpoint_otto_{event_type}_{epochs-1}.pt'
 
@@ -145,10 +145,9 @@ class GraphInMemoryDataset(InMemoryDataset):
         else:
             sessions = sessions.to_frame()
 
-        session_valid = True
-
         data_list = []
         for idx, row in sessions.iterrows():
+            session_valid = True
             if self.dataset_type == 'inference':
                 seq = row.aid
                 session_id = torch.tensor([idx], dtype=torch.long)
