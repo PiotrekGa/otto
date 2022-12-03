@@ -39,11 +39,11 @@ class CONFIG:
     # model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 128
-    hidden_dim = 64
-    epochs = 30
+    hidden_dim = 128
+    epochs = 20
     l2_penalty = 0.00001
     weight_decay = 0.1
-    step = 5
+    step = 3
     lr = 0.001
 
     # validation
@@ -101,7 +101,11 @@ class GraphInMemoryDataset(InMemoryDataset):
 
     @property
     def raw_file_names(self):
-        return [f'{self.file_name}_temp.parquet', f'{self.file_name}_labels.jsonl']
+        if self.dataset_type == 'train':
+            return [f'{self.file_name}_temp1.parquet']
+        else:
+            return [f'{self.file_name}_temp2.parquet',
+                    f'{self.file_name}_labels.jsonl']
 
     @property
     def processed_file_names(self):
@@ -270,12 +274,12 @@ class SRGNN(nn.Module):
 
 def train(config):
 
-    df = pd.read_parquet(
-        f'{config.data_path}/raw/{config.train_set}.parquet')
+    df = pd.concat([pd.read_parquet(
+        f'{config.data_path}/raw/valid{i}__test.parquet') for i in range(1, 4)])
 
     max_aid = df.aid.max()
     aid_cnt = df.groupby('aid').count()['ts']
-    aid_cnt = aid_cnt[aid_cnt < 5]
+    aid_cnt = aid_cnt[aid_cnt < config.min_aid_cnt]
     aid_cnt = aid_cnt * 0 + max_aid + 1
     df.aid = df.aid.map(aid_cnt).fillna(df.aid).astype(np.int32)
     mapper = df.aid.drop_duplicates()
@@ -286,7 +290,14 @@ def train(config):
     mapper_inv = {mapper[i]: i for i in mapper.index}
     df.aid = df.aid.map(mapper_inv)
     df.to_parquet(
-        f'{config.data_path}/raw/{config.train_set}_temp.parquet')
+        f'{config.data_path}/raw/{config.train_set}_temp1.parquet')
+
+    df2 = pd.read_parquet(
+        f'{config.data_path}/raw/valid3__test.parquet')
+    df2.aid = df2.aid.map(mapper_inv).fillna(len(mapper)-1).astype(np.int32)
+
+    df2.to_parquet(
+        f'{config.data_path}/raw/{config.train_set}_temp2.parquet')
 
     # Prepare data pipeline
     train_dataset = GraphInMemoryDataset(
@@ -370,7 +381,7 @@ def train(config):
         scheduler.step()
 
         top_k_correct = test(
-            val_loader, model)
+            val_loader, model, config)
         print('EPOCH', epoch, total_loss, top_k_correct)
 
         writer.add_scalar('Accuracy/top_20_correct', top_k_correct, epoch + 1)
@@ -380,7 +391,7 @@ def train(config):
     return model
 
 
-def test(loader, test_model, config=CONFIG):
+def test(loader, test_model, config):
     test_model.eval()
 
     top_k_correct = 0
