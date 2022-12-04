@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 ID2TYPE = ['clicks', 'carts', 'orders']
 TYPE2ID = {a: i for i, a in enumerate(ID2TYPE)}
@@ -29,11 +30,11 @@ def jsonl_to_df(path):
 
 
 def main():
-    files = ['valid0__test']
-    for file in files:
+    files = ['valid1__train', 'valid2__train', 'valid3__train']
+    for file in tqdm(files):
         print(f'processing {file}')
-        path_in = f'../data/raw/{file}.jsonl'
-        path_out = f'../data/raw/{file}.parquet'
+        path_in = f'data/raw/{file}.jsonl'
+        path_out = f'data/raw/{file}.parquet'
         df = jsonl_to_df(path_in)
         df.to_parquet(path_out, index=False)
 

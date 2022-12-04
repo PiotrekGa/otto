@@ -21,10 +21,10 @@ timestamp = str(datetime.now())[:19].replace(
 
 class CONFIG:
 
-    debug = False
+    debug = True
 
     # dataset
-    event_type = 'orders'
+    event_type = 'clicks'
     train_set = 'valid3__test'
     data_path = 'data/'
     dataset_size = None
@@ -60,11 +60,11 @@ class CONFIG:
 
     if debug:
         data_path = 'data/'
-        dataset_size = None
-        batch_size = 128
-        epochs = 20
-        hidden_dim = 128
-        valid_sessions = 1_000_000
+        dataset_size = 5_000
+        batch_size = 32
+        epochs = 2
+        hidden_dim = 16
+        valid_sessions = 2_000
         submission_size = 5000
         model_path = f'checkpoints/checkpoint_otto_{event_type}_{epochs-1}.pt'
 
