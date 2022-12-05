@@ -15,7 +15,7 @@ def parquet_to_npz(path, file_name):
 
 if __name__ == "__main__":
     path = 'data/raw/'
-    files = ['train']
+    files = ['valid1__train', 'valid2__train', 'valid3__train']
     for file in files:
         print(f'processing {file}')
         parquet_to_npz(path, file)

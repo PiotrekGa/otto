@@ -1,7 +1,10 @@
+import gc
+
 import pandas as pd
 import numpy as np
 import numba as nb
 import heapq
+from tqdm import tqdm
 
 TAIL = 30
 PARALLEL = 1024
@@ -18,14 +21,17 @@ def load_data(path, file_name):
         Min=('ts', np.min),
         Count=('ts', np.count_nonzero))
     df.columns = ['start_time', 'length']
+    df.reset_index(inplace=True, drop=False)
 
-    npz = np.load("../input/otto-data/train.npz")
+    npz = np.load(f"{path}{file_name}.npz")
     aids = npz['aids']
     ts = npz['ts']
     ops = npz['ops']
 
     df["idx"] = np.cumsum(df.length) - df.length
     df["end_time"] = df.start_time + ts[df.idx + df.length - 1]
+
+    return df, aids, ts, ops
 
 # get pair dict {(aid1, aid2): weight} for each session
 # The maximum time span between two points is 1 day = 24 * 60 * 60 sec
@@ -98,3 +104,33 @@ def heap_topk(cnt, overwrite, cap):
 def get_topk(cnts, topk, k):
     for aid1, cnt in cnts.items():
         topk[aid1] = np.array(heap_topk(cnt, 1, k))
+
+
+def train(df, aids, ts, ops):
+    topks = {}
+    # for two modes
+    for mode in [OP_WEIGHT, TIME_WEIGHT]:
+        # get nested counter
+        cnts = nb.typed.Dict.empty(
+            key_type=nb.types.int64,
+            value_type=nb.typeof(nb.typed.Dict.empty(key_type=nb.types.int64, value_type=nb.types.float64)))
+        max_idx = len(df)
+        for idx in tqdm(range(0, max_idx, PARALLEL)):
+            row = df.iloc[idx:min(idx + PARALLEL, max_idx)
+                          ][['session', 'idx', 'length', 'start_time']].values
+            get_pairs(aids, ts, ops, row, cnts, OPS_WEIGTHS, mode)
+
+        # get topk from counter
+        topk = nb.typed.Dict.empty(
+            key_type=nb.types.int64,
+            value_type=nb.types.int64[:])
+        get_topk(cnts, topk, TOPN)
+
+        del cnts
+        gc.collect()
+        topks[mode] = topk
+
+
+if __name__ == '__main__':
+    df, aids, ts, ops = load_data('../data/raw/', 'test')
+    train(df, aids, ts, ops)
