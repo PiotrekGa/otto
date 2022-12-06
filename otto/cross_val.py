@@ -3,11 +3,13 @@ from tqdm import tqdm
 
 from candidates import generate_candidates
 from features import add_labels, add_featues
-from rerank_model import train_rerank_model, score_candidates
+from rerank_model import train_rerank_model, select_recommendations
+from evaluate import evaluate
 
 
 class CONFIG:
     data_path = '../data/'
+    submission_name = 'submission'
     folds = [['valid1__', 'valid2__'], [
         'valid2__', 'valid3__'], ['valid3__', '']]
     features = [
@@ -22,6 +24,9 @@ class CONFIG:
         'cart_interaction_last_time',
         'order_interaction_cnt',
         'order_interaction_last_time']
+    model_param = {'objective': 'lambdarank',
+                   'lambdarank_truncation_level': 15,
+                   'verbose': -1}
 
 
 def main(config):
@@ -41,13 +46,28 @@ def main(config):
             candidates_valid = add_labels(candidates_valid, fold[1], config)
         candidates_valid = add_featues(candidates_valid, fold[1], config)
 
-        scored_candidates_clicks = score_candidates(
-            candidates_valid, model_clicks, config)
-        scored_candidates_carts = score_candidates(
-            candidates_valid, model_carts, config)
-        scored_candidates_orders = score_candidates(
-            candidates_valid, model_orders, config)
+        reco_clicks = select_recommendations(
+            candidates_valid, 'clicks', model_clicks, config)
+        reco_carts = select_recommendations(
+            candidates_valid, 'carts', model_carts, config)
+        reco_orders = select_recommendations(
+            candidates_valid, 'orders', model_orders, config)
+
+        reco = pl.concat([reco_clicks, reco_carts, reco_orders])
+        reco.write_csv(f'{fold[1]}{config.submission_name}.csv')
+
+        if len(fold[1]) > 0:
+            score = evaluate(
+                f'{config.data_path}raw/{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}.csv')
+            print(score)
+            scores.append(score)
+
+    if len(scores) > 0:
+        scores = pl.DataFrame(scores).mean()
+        return scores
+    else:
+        return None
 
 
 if __name__ == '__main__':
-    main(CONFIG)
+    scores = main(CONFIG)
