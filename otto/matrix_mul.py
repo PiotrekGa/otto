@@ -6,6 +6,10 @@ from copy import deepcopy
 import gc
 from joblib import Parallel, delayed
 
+########################
+# IT'S NOT A GOOD IDEA #
+########################
+
 
 def matrix_mult_pred(path, prefix, event_to_predict, filter_event=None):
     # df = pd.concat([pd.read_parquet(f'{path}{prefix}train.parquet'),
@@ -111,47 +115,47 @@ if __name__ == '__main__':
     sub = pd.concat([sub_clicks, sub_carts, sub_orders])
     sub.to_csv(f'{CONFIG.sub_name}.csv', index=False)
 
-    # class CONFIG:
-    #     path = '../data/raw/'
-    #     prefix = PREFIX
-    #     filter_event_clicks = 0
-    #     filter_event_carts = 1
-    #     filter_event_orders = 2
+    class CONFIG:
+        path = '../data/raw/'
+        prefix = PREFIX
+        filter_event_clicks = 0
+        filter_event_carts = 1
+        filter_event_orders = 2
 
-    #     sub_name = f'{prefix}submission_mat_mul_1'
+        sub_name = f'{prefix}submission_mat_mul_1'
 
-    # df = pd.read_parquet(
-    #     f'{CONFIG.path}{CONFIG.prefix}test.parquet')
+    df = pd.read_parquet(
+        f'{CONFIG.path}{CONFIG.prefix}test.parquet')
 
-    # clicks_dict = matrix_mult_pred(
-    #     CONFIG.path, CONFIG.prefix, 0, CONFIG.filter_event_clicks)
-    # if CONFIG.filter_event_clicks:
-    #     df_clicks = df.loc[df.type == CONFIG.filter_event_clicks]
-    # else:
-    #     df_clicks = df.copy()
-    # df_clicks = df_clicks.groupby('session')['aid'].apply(list)
-    # sub_clicks = make_sub(df_clicks, clicks_dict, 'clicks')
-    # del clicks_dict, df_clicks
+    clicks_dict = matrix_mult_pred(
+        CONFIG.path, CONFIG.prefix, 0, CONFIG.filter_event_clicks)
+    if CONFIG.filter_event_clicks:
+        df_clicks = df.loc[df.type == CONFIG.filter_event_clicks]
+    else:
+        df_clicks = df.copy()
+    df_clicks = df_clicks.groupby('session')[['aid']].last()
+    sub_clicks = make_sub(df_clicks, clicks_dict, 'clicks')
+    del clicks_dict, df_clicks
 
-    # carts_dict = matrix_mult_pred(
-    #     CONFIG.path, CONFIG.prefix, 1, CONFIG.filter_event_carts)
-    # if CONFIG.filter_event_carts:
-    #     df_carts = df.loc[df.type == CONFIG.filter_event_carts]
-    # else:
-    #     df_carts = df.copy()
-    # df_carts = df_carts.groupby('session')['aid'].apply(list)
-    # sub_carts = make_sub(df_carts, carts_dict, 'carts')
-    # del carts_dict, df_carts
+    carts_dict = matrix_mult_pred(
+        CONFIG.path, CONFIG.prefix, 1, CONFIG.filter_event_carts)
+    if CONFIG.filter_event_carts:
+        df_carts = df.loc[df.type == CONFIG.filter_event_carts]
+    else:
+        df_carts = df.copy()
+    df_carts = df_carts.groupby('session')[['aid']].last()
+    sub_carts = make_sub(df_carts, carts_dict, 'carts')
+    del carts_dict, df_carts
 
-    # orders_dict = matrix_mult_pred(
-    #     CONFIG.path, CONFIG.prefix, 2, CONFIG.filter_event_orders)
-    # if CONFIG.filter_event_orders:
-    #     df_orders = df.loc[df.type == CONFIG.filter_event_orders]
-    # else:
-    #     df_orders = df.copy()
-    # df_orders = df_orders.groupby('session')['aid'].apply(list)
-    # sub_orders = make_sub(df_orders, orders_dict, 'orders')
-    # del orders_dict, df_orders
+    orders_dict = matrix_mult_pred(
+        CONFIG.path, CONFIG.prefix, 2, CONFIG.filter_event_orders)
+    if CONFIG.filter_event_orders:
+        df_orders = df.loc[df.type == CONFIG.filter_event_orders]
+    else:
+        df_orders = df.copy()
+    df_orders = df_orders.groupby('session')[['aid']].last()
+    sub_orders = make_sub(df_orders, orders_dict, 'orders')
+    del orders_dict, df_orders
 
-    # sub = pd.concat([sub_clicks, sub_carts, sub_orders])
-    # sub.to_csv(f'{CONFIG.sub_name}.csv', index=False)
+    sub = pd.concat([sub_clicks, sub_carts, sub_orders])
+    sub.to_csv(f'{CONFIG.sub_name}.csv', index=False)
