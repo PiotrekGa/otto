@@ -18,6 +18,7 @@ polars = "*"
 beartype = "*"
 torch = "*"
 numba = "*"
+lightgbm = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"

@@ -29,6 +29,29 @@ def jsonl_to_df(path):
     return df
 
 
+def labels_to_parquet(file_name):
+    labels = pd.read_json(
+        f'../data/raw/{file_name}__test_labels.jsonl', lines=True)
+    new_labels = []
+    for _, row in tqdm(labels.iterrows(), total=labels.shape[0]):
+        if 'clicks' in row.labels:
+            label = row.labels['clicks']
+            type = 0
+            new_labels.append([row.session, type, label])
+        if 'carts' in row.labels:
+            for label in row.labels['carts']:
+                type = 1
+                new_labels.append([row.session, type, label])
+        if 'orders' in row.labels:
+            for label in row.labels['orders']:
+                type = 2
+                new_labels.append([row.session, type, label])
+    new_labels = pd.DataFrame(new_labels, columns=['session', 'type', 'aid'])
+    new_labels = new_labels.astype(np.int32)
+    new_labels.type = new_labels.type.astype(np.int8)
+    new_labels.to_parquet(f'../data/raw/{file_name}__test_labels.parquet')
+
+
 def main():
     files = ['valid1__train', 'valid2__train', 'valid3__train']
     for file in tqdm(files):
