@@ -18,6 +18,8 @@ class CONFIG:
         'clicked_in_session',
         'carted_in_session',
         'ordered_in_session',
+        'covisit1_clicks',
+        'covisit1_carts',
         'session_interaction_cnt',
         'session_interaction_last_time',
         'click_interaction_cnt',
@@ -61,7 +63,6 @@ def main(config):
         if len(fold[1]) > 0:
             score = evaluate(
                 f'{config.data_path}raw/{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}.csv')
-            print(score)
             scores.append(score)
 
     if len(scores) > 0:
@@ -73,3 +74,4 @@ def main(config):
 
 if __name__ == '__main__':
     scores = main(CONFIG)
+    print(scores)
