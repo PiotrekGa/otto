@@ -19,9 +19,11 @@ def add_labels(candidates, fold, config):
 
 def add_featues(candidates, fold, config):
 
-    feats = LastInteraction(
+    feats_obj = LastInteraction(
         fold, 'session_feats', config.data_path)
-    feats = feats.load_feature_file()
+    feats = feats_obj.load_feature_file()
+    feats = candidates.join(feats, on=['session', 'aid'], how='left')
+    feats = feats_obj.fill_null(feats)
 
     session_click_feats_obj = LastInteraction(
         fold, 'session_clicks_feats', config.data_path, 0)
@@ -47,9 +49,28 @@ def add_featues(candidates, fold, config):
     feats = session_orders_feats_obj.fill_null(feats)
     del session_orders_feats, session_orders_feats_obj
 
-    candidates = candidates.join(feats, on=['session', 'aid'], how='left')
+    feats = feats.with_column(((pl.col('cart_interaction_last_time') >= 0) & (
+        pl.col('order_interaction_last_time') < 0)).alias('cart_without_order1'))
+    feats = feats.with_column(((pl.col('cart_interaction_last_time') >= 0) & (pl.col('order_interaction_last_time') >= 0) & (
+        pl.col('order_interaction_last_time') > pl.col('cart_interaction_last_time'))).alias('cart_without_order2'))
+    feats = feats.with_column((pl.col('cart_without_order1') | pl.col('cart_without_order2')).alias(
+        'cart_without_order')).drop(['cart_without_order1', 'cart_without_order2'])
 
-    return candidates
+    feats = feats.with_column(((pl.col('click_interaction_last_time') >= 0) & (
+        pl.col('order_interaction_last_time') < 0)).alias('click_without_order1'))
+    feats = feats.with_column(((pl.col('click_interaction_last_time') >= 0) & (pl.col('order_interaction_last_time') >= 0) & (
+        pl.col('order_interaction_last_time') > pl.col('click_interaction_last_time'))).alias('click_without_order2'))
+    feats = feats.with_column((pl.col('click_without_order1') | pl.col('click_without_order2')).alias(
+        'click_without_order')).drop(['click_without_order1', 'click_without_order2'])
+
+    feats = feats.with_column(((pl.col('click_interaction_last_time') >= 0) & (
+        pl.col('cart_interaction_last_time') < 0)).alias('click_without_cart1'))
+    feats = feats.with_column(((pl.col('click_interaction_last_time') >= 0) & (pl.col('cart_interaction_last_time') >= 0) & (
+        pl.col('cart_interaction_last_time') > pl.col('click_interaction_last_time'))).alias('click_without_cart2'))
+    feats = feats.with_column((pl.col('click_without_cart1') | pl.col('click_without_cart2')).alias(
+        'click_without_cart')).drop(['click_without_cart1', 'click_without_cart2'])
+
+    return feats
 
 
 class Feature():

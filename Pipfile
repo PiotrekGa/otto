@@ -19,6 +19,7 @@ beartype = "*"
 torch = "*"
 numba = "*"
 lightgbm = "*"
+kaggle = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"
