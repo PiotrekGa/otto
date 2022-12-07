@@ -1,16 +1,13 @@
-import argparse
 import json
 import logging
-from pathlib import Path
 
 from beartype import beartype
-from tqdm.auto import tqdm
 
 
 @beartype
 def prepare_predictions(predictions: list[str]):
     prepared_predictions = dict()
-    for prediction in tqdm(predictions, desc="Preparing predictions"):
+    for prediction in predictions:
         sid_type, preds = prediction.strip().split(",")
         sid, event_type = sid_type.split("_")
         preds = [int(aid) for aid in preds.split(" ")] if preds != "" else []
@@ -23,7 +20,7 @@ def prepare_predictions(predictions: list[str]):
 @beartype
 def prepare_labels(labels: list[str]):
     final_labels = dict()
-    for label in tqdm(labels, desc="Preparing labels"):
+    for label in labels:
         label = json.loads(label)
         final_labels[label["session"]] = {
             "clicks": label["labels"].get("clicks", None),
@@ -58,7 +55,7 @@ def evaluate_session(labels: dict, prediction: dict, k: int):
 @beartype
 def evaluate_sessions(labels: dict[str, dict], predictions: dict[int, dict], k: int):
     result = {}
-    for session_id, session_labels in tqdm(labels.items(), desc="Evaluating sessions"):
+    for session_id, session_labels in labels.items():
         if session_id in predictions:
             result[session_id] = evaluate_session(
                 session_labels, predictions[session_id], k)

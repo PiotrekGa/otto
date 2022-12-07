@@ -12,6 +12,8 @@ class CONFIG:
     submission_name = 'submission'
     folds = [['valid1__', 'valid2__'], [
         'valid2__', 'valid3__'], ['valid3__', '']]
+
+    max_negative_candidates = 20
     features = [
         'clicked_in_session',
         'carted_in_session',
