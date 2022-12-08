@@ -27,6 +27,8 @@ def train_rerank_model(candidates, train_column, config):
         frac=1., shuffle=True, seed=42)
     del positive_cands, negative_cands
 
+    candidates = candidates.sort(by='session')
+
     y = candidates.select(pl.col(train_column)).to_numpy().ravel()
     x = candidates.select(pl.col(config.features)).to_numpy()
     train_baskets = candidates.groupby(['session']).agg(

@@ -11,7 +11,7 @@ class CONFIG:
     data_path = '../data/'
     submission_name = 'submission'
     folds = [['valid1__', 'valid2__'], [
-        'valid2__', 'valid3__'], ['valid3__', '']]
+        'valid2__', 'valid3__']]
 
     max_negative_candidates = 20
     features = [
@@ -66,6 +66,7 @@ def main(config):
         if len(fold[1]) > 0:
             score = evaluate(
                 f'{config.data_path}raw/{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}.csv')
+            print(f"Scores: {scores}")
             scores.append(score)
 
     if len(scores) > 0:
