@@ -148,7 +148,6 @@ def evaluate(labels_path, predictions_path):
         logging.info(f"Read {len(predictions)} predictions")
     logging.info("Calculating scores")
     scores = get_scores(labels, predictions)
-    print(f"Scores: {scores}")
     return scores
 
 
