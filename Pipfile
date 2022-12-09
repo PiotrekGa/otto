@@ -20,6 +20,7 @@ torch = "*"
 numba = "*"
 lightgbm = "*"
 kaggle = "*"
+annoy = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"

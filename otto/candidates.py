@@ -1,5 +1,8 @@
 import polars as pl
 from pathlib import Path
+from tqdm import tqdm
+from gensim.models import Word2Vec
+from gensim.similarities.annoy import AnnoyIndexer
 
 
 def generate_candidates(fold, config):
@@ -37,6 +40,14 @@ def generate_candidates(fold, config):
     candidates = candidates.join(
         covisit1_carts, on=['session', 'aid'], how='outer')
     del covisit1_carts
+
+    w2v_window11 = W2VReco(
+        fold, 'w2v_window11', config.data_path, '11', 30)
+    w2v_window11 = w2v_window11.load_candidates_file()
+
+    candidates = candidates.join(
+        w2v_window11, on=['session', 'aid'], how='outer')
+    del w2v_window11
 
     candidates = candidates.fill_null(999)
     return candidates
@@ -107,3 +118,53 @@ class CovisitMatrix(CandiadateGen):
             [pl.col('session').cast(pl.Int32), pl.col('candidates').cast(pl.Int32).alias('aid'), pl.col(self.name).cast(pl.Int32)]).collect()
         df.write_parquet(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+
+
+class W2VReco(CandiadateGen):
+    def __init__(self, fold, name, data_path, window_str, max_cands):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.window_str = window_str
+        self.max_cands = max_cands
+
+    def prepare_candidates(self):
+        df = pl.read_parquet(
+            f'{self.data_path}raw/{self.fold}test.parquet').lazy()
+        model = Word2Vec.load(
+            f'{self.data_path}raw/word2vec_w{self.window_str}.model')
+        df = df.unique(subset=['session'], keep='last')
+        df = df.with_column((pl.col('aid').cast(
+            str) + pl.lit('_') + pl.col('type').cast(str)).alias('aid_str'))
+        df = df.with_column(pl.col('type').cast(str))
+        vocab = set(model.wv.index_to_key)
+        annoy_index = AnnoyIndexer(model, 100)
+        cands = [self.get_w2v_reco(
+            df[i, 4], df[i, 0], model, vocab, annoy_index) for i in tqdm(range(df.shape[0]))]
+        cands = pl.DataFrame(cands, columns=['session', 'aid', 'name', 'rank'])
+        cands = cands.pivot(index=['session', 'aid'],
+                            columns='name', values='rank')
+        cands.write_parquet(
+            f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+
+    def get_w2v_reco(self, aid_str, session, model, vocab, indexer):
+        cands = []
+        if aid_str in vocab:
+            recos = model.wv.most_similar(aid_str, topn=200, indexer=indexer)
+            clicks_rank = 0
+            carts_rank = 0
+            orders_rank = 0
+            for reco in recos:
+                if len(reco[0]) > 1:
+                    if reco[0][-1] == '0' and clicks_rank < self.max_cands:
+                        cands.append(
+                            [session, int(reco[0][:-2]), f'w2v_{self.window_str}_clicks', clicks_rank])
+                        clicks_rank += 1
+                    elif reco[0][-1] == '1' and carts_rank < self.max_cands:
+                        cands.append([session, int(reco[0][:-2]),
+                                      f'w2v_{self.window_str}_carts', carts_rank])
+                        carts_rank += 1
+                    elif orders_rank < self.max_cands:
+                        cands.append(
+                            [session, int(reco[0][:-2]), f'w2v_{self.window_str}_orders', orders_rank])
+                        orders_rank += 1
+        return cands
