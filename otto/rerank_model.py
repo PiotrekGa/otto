@@ -36,6 +36,8 @@ def train_rerank_model(candidates, train_column, config):
     train_baskets = train_baskets.select(pl.col('basket'))
     train_baskets = train_baskets.to_numpy().ravel()
 
+    del candidates
+
     train_dataset = lgb.Dataset(
         data=x, label=y, group=train_baskets)
     model = lgb.train(train_set=train_dataset,
