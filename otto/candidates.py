@@ -41,13 +41,21 @@ def generate_candidates(fold, config):
         covisit1_carts, on=['session', 'aid'], how='outer')
     del covisit1_carts
 
-    w2v_window11 = W2VReco(
-        fold, 'w2v_window11', config.data_path, '11', 30)
-    w2v_window11 = w2v_window11.load_candidates_file()
+    w2v_window09 = W2VReco(
+        fold, 'w2v_window09', config.data_path, '09', 50)
+    w2v_window09 = w2v_window09.load_candidates_file()
 
     candidates = candidates.join(
-        w2v_window11, on=['session', 'aid'], how='outer')
-    del w2v_window11
+        w2v_window09, on=['session', 'aid'], how='outer')
+    del w2v_window09
+
+    # w2v_window15 = W2VReco(
+    #     fold, 'w2v_window15', config.data_path, '15', 30)
+    # w2v_window15 = w2v_window15.load_candidates_file()
+
+    # candidates = candidates.join(
+    #     w2v_window15, on=['session', 'aid'], how='outer')
+    # del w2v_window15
 
     candidates = candidates.fill_null(999)
     return candidates
@@ -135,11 +143,12 @@ class W2VReco(CandiadateGen):
         df = df.unique(subset=['session'], keep='last')
         df = df.with_column((pl.col('aid').cast(
             str) + pl.lit('_') + pl.col('type').cast(str)).alias('aid_str'))
-        df = df.with_column(pl.col('type').cast(str))
+        df = df.with_column(pl.col('type').cast(str)).collect()
         vocab = set(model.wv.index_to_key)
         annoy_index = AnnoyIndexer(model, 100)
         cands = [self.get_w2v_reco(
             df[i, 4], df[i, 0], model, vocab, annoy_index) for i in tqdm(range(df.shape[0]))]
+        cands = [item for sublist in cands for item in sublist]
         cands = pl.DataFrame(cands, columns=['session', 'aid', 'name', 'rank'])
         cands = cands.pivot(index=['session', 'aid'],
                             columns='name', values='rank')

@@ -10,7 +10,7 @@ from evaluate import evaluate
 class CONFIG:
     data_path = '../data/'
     submission_name = 'submission'
-    folds = [['valid1__', 'valid2__'], [
+    folds = [['valid3__', ''], ['valid1__', 'valid2__'], [
         'valid2__', 'valid3__']]
 
     max_negative_candidates = 20
@@ -23,6 +23,9 @@ class CONFIG:
         'click_without_cart',
         'covisit1_clicks',
         'covisit1_carts',
+        'w2v_09_clicks',
+        'w2v_09_carts',
+        'w2v_09_orders',
         'session_interaction_cnt',
         'session_interaction_last_time',
         'click_interaction_cnt',
