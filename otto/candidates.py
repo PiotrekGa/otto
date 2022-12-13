@@ -66,21 +66,21 @@ def generate_candidates(fold, config):
         mf1_orders, on=['session', 'aid'], how='outer')
     del mf1_orders
 
-    w2v_window09 = W2VReco(
-        fold, 'w2v_window09', config.data_path, '09', 30)
-    w2v_window09 = w2v_window09.load_candidates_file()
-
-    candidates = candidates.join(
-        w2v_window09, on=['session', 'aid'], how='outer')
-    del w2v_window09
-
-    # w2v_window15 = W2VReco(
-    #     fold, 'w2v_window15', config.data_path, '15', 30)
-    # w2v_window15 = w2v_window15.load_candidates_file()
+    # w2v_window09 = W2VReco(
+    #     fold, 'w2v_window09', config.data_path, '09', 30)
+    # w2v_window09 = w2v_window09.load_candidates_file()
 
     # candidates = candidates.join(
-    #     w2v_window15, on=['session', 'aid'], how='outer')
-    # del w2v_window15
+    #     w2v_window09, on=['session', 'aid'], how='outer')
+    # del w2v_window09
+
+    w2v_window01 = W2VReco(
+        fold, 'w2v_window01', config.data_path, '01', 30)
+    w2v_window01 = w2v_window01.load_candidates_file()
+
+    candidates = candidates.join(
+        w2v_window01, on=['session', 'aid'], how='outer')
+    del w2v_window01
 
     candidates = candidates.fill_null(999)
     return candidates
@@ -211,7 +211,22 @@ class W2VReco(CandiadateGen):
                              'aid_str', 'aid', 'col_name', 'rank'])
         cands = cands.pivot(index=['aid_str', 'aid'],
                             columns='col_name', values='rank')
-        cands = cands.select(pl.col(
-            ['aid_str', 'aid', f'w2v_{self.window_str}_clicks', f'w2v_{self.window_str}_carts', f'w2v_{self.window_str}_orders']))
+
+        if f'w2v_{self.window_str}_clicks' not in cands.columns:
+            cands = cands.with_column(pl.lit(None).cast(pl.Int64).alias(
+                f'w2v_{self.window_str}_clicks'))
+
+        if f'w2v_{self.window_str}_carts' not in cands.columns:
+            cands = cands.with_column(
+                pl.lit(None).cast(pl.Int64).alias(f'w2v_{self.window_str}_carts'))
+
+        if f'w2v_{self.window_str}_orders' not in cands.columns:
+            cands = cands.with_column(pl.lit(None).cast(pl.Int64).alias(
+                f'w2v_{self.window_str}_orders'))
+
+        columns = cands.columns
+        columns.sort()
+
+        cands = cands.select(pl.col(columns))
 
         return cands

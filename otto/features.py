@@ -151,6 +151,11 @@ class LastInteraction(Feature):
             pl.col(f'{self.event_type_str}_interaction_cnt').fill_null(0))
         df = df.with_column(
             pl.col(f'{self.event_type_str}_interaction_last_time').fill_null(-1))
+        df = df.with_column(
+            pl.col(f'{self.event_type_str}_last_weekday').fill_null(99))
+        df = df.with_column(
+            pl.col(f'{self.event_type_str}_last_time_of_day').fill_null(99))
+
         return df
 
 
