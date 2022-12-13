@@ -1,4 +1,5 @@
 import polars as pl
+import os
 from pathlib import Path
 from tqdm import tqdm
 from gensim.models import Word2Vec
@@ -25,24 +26,48 @@ def generate_candidates(fold, config):
     candidates = candidates.pivot(
         values='rank', index=['session', 'aid'], columns='name')
 
-    covisit1_clicks = CovisitMatrix(
-        fold, 'clicks', 'covisit1_clicks', config.data_path)
+    covisit1_clicks = CandsFromSubmission(
+        fold, 'clicks', 'covisit1_clicks', config.data_path, 'covisit1')
     covisit1_clicks = covisit1_clicks.load_candidates_file()
 
     candidates = candidates.join(
         covisit1_clicks, on=['session', 'aid'], how='outer')
     del covisit1_clicks
 
-    covisit1_carts = CovisitMatrix(
-        fold, 'carts', 'covisit1_carts', config.data_path)
+    covisit1_carts = CandsFromSubmission(
+        fold, 'carts', 'covisit1_carts', config.data_path, 'covisit1')
     covisit1_carts = covisit1_carts.load_candidates_file()
 
     candidates = candidates.join(
         covisit1_carts, on=['session', 'aid'], how='outer')
     del covisit1_carts
 
+    mf1_clicks = CandsFromSubmission(
+        fold, 'clicks', 'mf1_clicks', config.data_path, 'matrix_factorization1')
+    mf1_clicks = mf1_clicks.load_candidates_file()
+
+    candidates = candidates.join(
+        mf1_clicks, on=['session', 'aid'], how='outer')
+    del mf1_clicks
+
+    mf1_carts = CandsFromSubmission(
+        fold, 'carts', 'mf1_carts', config.data_path, 'matrix_factorization1')
+    mf1_carts = mf1_carts.load_candidates_file()
+
+    candidates = candidates.join(
+        mf1_carts, on=['session', 'aid'], how='outer')
+    del mf1_carts
+
+    mf1_orders = CandsFromSubmission(
+        fold, 'orders', 'mf1_orders', config.data_path, 'matrix_factorization1')
+    mf1_orders = mf1_orders.load_candidates_file()
+
+    candidates = candidates.join(
+        mf1_orders, on=['session', 'aid'], how='outer')
+    del mf1_orders
+
     w2v_window09 = W2VReco(
-        fold, 'w2v_window09', config.data_path, '09', 50)
+        fold, 'w2v_window09', config.data_path, '09', 30)
     w2v_window09 = w2v_window09.load_candidates_file()
 
     candidates = candidates.join(
@@ -75,6 +100,7 @@ class CandiadateGen():
         candidate_file = Path(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
         if not candidate_file.is_file():
+            print(f'preparing candidates {self.fold}{self.name}')
             self.prepare_candidates()
         return pl.read_parquet(candidate_file.as_posix()).lazy()
 
@@ -100,16 +126,17 @@ class RecentEvents(CandiadateGen):
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
 
 
-class CovisitMatrix(CandiadateGen):
+class CandsFromSubmission(CandiadateGen):
 
-    def __init__(self, fold, event_type_str, name, data_path):
+    def __init__(self, fold, event_type_str, name, data_path, base_file_name):
         super().__init__(fold=fold, name=name, data_path=data_path)
         self.fold = fold
         self.event_type_str = event_type_str
+        self.base_file_name = base_file_name
 
     def prepare_candidates(self):
         df = pl.read_csv(
-            f'{self.data_path}raw/{self.fold}covisit1.csv').lazy()
+            f'{self.data_path}raw/{self.fold}{self.base_file_name}.csv').lazy()
         df = df.with_column(pl.col('labels').apply(
             lambda x: [int(i) for i in x.split()]).alias('candidates'))
         df = df.with_column(pl.col('session_type').str.split(
@@ -146,13 +173,39 @@ class W2VReco(CandiadateGen):
         df = df.with_column(pl.col('type').cast(str)).collect()
         vocab = set(model.wv.index_to_key)
         annoy_index = AnnoyIndexer(model, 100)
-        cands = [self.get_w2v_reco(
-            df[i, 4], df[i, 0], model, vocab, annoy_index) for i in tqdm(range(df.shape[0]))]
-        cands = [item for sublist in cands for item in sublist]
-        cands = pl.DataFrame(cands, columns=['session', 'aid', 'name', 'rank'])
-        cands = cands.pivot(index=['session', 'aid'],
-                            columns='name', values='rank')
-        cands.write_parquet(
+        cands = []
+        for i in tqdm(range(df.shape[0])):
+            cands.extend(self.get_w2v_reco(
+                df[i, 4], df[i, 0], model, vocab, annoy_index))
+        del df, model, vocab, annoy_index
+
+        if os.path.exists('temp.csv'):
+            os.remove('temp.csv')
+
+        with open(f'temp.csv', 'a') as f:
+            f.write('session,aid,name,rank\n')
+            for i in tqdm(cands):
+                x = ','.join([str(j) for j in i]) + '\n'
+                f.write(x)
+        f.close()
+
+        del cands
+        cands = pl.read_csv('temp.csv')
+
+        if os.path.exists('temp.csv'):
+            os.remove('temp.csv')
+
+        columns = cands.select(pl.col('name')).unique().to_dict()
+        for i, column in enumerate(columns['name']):
+            if i == 0:
+                df = cands.filter(pl.col('name') == column).with_column(
+                    pl.col('rank').alias(column)).drop(['name', 'rank'])
+            else:
+                df_temp = cands.filter(pl.col('name') == column).with_column(
+                    pl.col('rank').alias(column)).drop(['name', 'rank'])
+                df = df.join(df_temp, on=['session', 'aid'], how='outer')
+        df = df.select(pl.col('*').cast(pl.Int32))
+        df.write_parquet(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
 
     def get_w2v_reco(self, aid_str, session, model, vocab, indexer):

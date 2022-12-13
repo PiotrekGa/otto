@@ -136,6 +136,7 @@ def get_scores(labels: dict[int, dict],
 
 @beartype
 def evaluate(labels_path, predictions_path):
+    print('evaluating solution')
     with open(labels_path, "r") as f:
         logging.info(f"Reading labels from {labels_path}")
         labels = f.readlines()
@@ -149,8 +150,3 @@ def evaluate(labels_path, predictions_path):
     logging.info("Calculating scores")
     scores = get_scores(labels, predictions)
     return scores
-
-
-if __name__ == '__main__':
-    evaluate('../data/raw/valid2__test_labels.jsonl',
-             'sub_valid2__test_10k.csv')

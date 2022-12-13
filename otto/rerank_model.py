@@ -19,7 +19,7 @@ def train_rerank_model(candidates, train_column, config):
 
     negative_cands = negative_cands.sort(by='session')
     negative_cands = negative_cands.with_column(
-        pl.col('session').count().over('session').alias('rank'))
+        pl.col('session').cumcount().over('session').alias('rank'))
     negative_cands = negative_cands.filter(
         pl.col('rank') <= config.max_negative_candidates).drop('rank')
 
@@ -37,7 +37,7 @@ def train_rerank_model(candidates, train_column, config):
     train_baskets = train_baskets.to_numpy().ravel()
 
     del candidates
-
+    print(f'training model {train_column}')
     train_dataset = lgb.Dataset(
         data=x, label=y, group=train_baskets)
     model = lgb.train(train_set=train_dataset,
@@ -46,11 +46,31 @@ def train_rerank_model(candidates, train_column, config):
 
 
 def select_recommendations(candidates, event_type_str, model, config, k=20):
+    print(f'scoring candidates {event_type_str}')
     x = candidates.select(pl.col(config.features)).to_numpy()
     scores = model.predict(x)
     candidates_scored = candidates.select(pl.col(['session', 'aid']))
     candidates_scored = candidates_scored.with_column(
         pl.lit(scores).alias('score'))
+
+    candidates_scored = candidates_scored.sort(
+        by=['session', 'score'], reverse=[False, True])
+
+    recommendations = candidates_scored.groupby(
+        'session').agg(pl.col('aid'))
+
+    recommendations = recommendations.select([(pl.col('session').cast(str) + pl.lit(f'_{event_type_str}')).alias('session_type'), pl.col(
+        'aid').apply(lambda x: ' '.join([str(i) for i in x[:k]])).alias('labels')])
+    return recommendations
+
+
+def select_perfect_recommendations(candidates, event_type_str, k=20):
+    print(f'selecting perfect candidates {event_type_str}')
+    col_name = 'y_' + event_type_str
+    candidates_scored = candidates.select([
+        pl.col('session'), pl.col('aid'), pl.col(col_name).alias('score')])
+    candidates_scored = candidates_scored.sort(
+        by=['session', 'score'], reverse=[False, True])
 
     recommendations = candidates_scored.groupby(
         'session').agg(pl.col('aid'))

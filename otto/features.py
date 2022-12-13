@@ -70,6 +70,14 @@ def add_featues(candidates, fold, config):
     feats = feats.with_column((pl.col('click_without_cart1') | pl.col('click_without_cart2')).alias(
         'click_without_cart')).drop(['click_without_cart1', 'click_without_cart2'])
 
+    aid_feats_obj = AidFeatures(
+        data_path=config.data_path, fold=fold, name='aid_stats')
+    aid_feats = aid_feats_obj.load_feature_file()
+
+    feats = feats.join(aid_feats, how='left', on='aid')
+    feats = aid_feats_obj.fill_null(feats)
+    del aid_feats, aid_feats_obj
+
     return feats
 
 
@@ -89,6 +97,7 @@ class Feature():
         feature_file = Path(
             f'{self.data_path}features/{self.fold}{self.name}.parquet')
         if not feature_file.is_file():
+            print(f'preparing features {self.fold}{self.name}')
             self.prepare_features()
         return pl.read_parquet(feature_file.as_posix()).lazy()
 
@@ -114,11 +123,26 @@ class LastInteraction(Feature):
         df = df.join(session_ts_max, on='session')
         df = df.with_column((pl.col('ts_max') - pl.col('ts')
                              ).alias('ts_since_interaction'))
-        df = df.groupby(['session', 'aid']).agg([pl.col('ts').count().alias(
-            f'{self.event_type_str}_interaction_cnt'), pl.col('ts_since_interaction').min().alias(f'{self.event_type_str}_interaction_last_time')])
+
+        df = df.groupby(['session', 'aid']).agg([
+            pl.col('ts').count().alias(
+                f'{self.event_type_str}_interaction_cnt'),
+            pl.col('ts_since_interaction').min().alias(
+                f'{self.event_type_str}_interaction_last_time'),
+            pl.col('ts').max()
+        ])
+
         df = df.with_columns(pl.col(['session', 'aid', f'{self.event_type_str}_interaction_cnt',
                                      f'{self.event_type_str}_interaction_last_time']))
+        df = df.with_columns([
+            (pl.col('ts').cast(pl.Int64) *
+             1000000).cast(pl.Datetime).dt.weekday().alias(f'{self.event_type_str}_last_weekday'),
+            ((pl.col('ts').cast(pl.Int64) * 1000000).cast(pl.Datetime).dt.hour() /
+             6).cast(pl.Int16).alias(f'{self.event_type_str}_last_time_of_day')
+        ]).drop('ts')
+
         df = df.collect()
+
         df.write_parquet(
             f'{self.data_path}features/{self.fold}{self.name}.parquet')
 
@@ -127,4 +151,68 @@ class LastInteraction(Feature):
             pl.col(f'{self.event_type_str}_interaction_cnt').fill_null(0))
         df = df.with_column(
             pl.col(f'{self.event_type_str}_interaction_last_time').fill_null(-1))
+        return df
+
+
+class AidFeatures(Feature):
+    def __init__(self, fold, name, data_path):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+
+    def prepare_features(self):
+        df = pl.read_parquet(
+            f'{self.data_path}raw/{self.fold}test.parquet')
+        ts_max = df.select(pl.col('ts').max())[0, 0]
+        ts_min = df.select(pl.col('ts').min())[0, 0]
+
+        aid_stats = df.groupby('aid').agg([
+            pl.col('ts').max().alias('aid_max_ts'),
+            pl.col('ts').min().alias('aid_min_ts'),
+            pl.col('session').count().alias('aid_cnt')])
+        aid_stats = aid_stats.with_column(ts_max - pl.col('aid_max_ts'))
+        aid_stats = aid_stats.with_column(pl.col('aid_min_ts') - ts_min)
+
+        aid_cart_stats = df.filter(pl.col('type') == 1).groupby('aid').agg([
+            pl.col('ts').max().alias('aid_cart_max_ts'),
+            pl.col('ts').min().alias('aid_cart_min_ts'),
+            pl.col('session').count().alias('aid_cart_cnt')])
+        aid_cart_stats = aid_cart_stats.with_column(
+            ts_max - pl.col('aid_cart_max_ts'))
+        aid_cart_stats = aid_cart_stats.with_column(
+            pl.col('aid_cart_min_ts') - ts_min)
+
+        aid_order_stats = df.filter(pl.col('type') == 2).groupby('aid').agg([
+            pl.col('ts').max().alias('aid_order_max_ts'),
+            pl.col('ts').min().alias('aid_order_min_ts'),
+            pl.col('session').count().alias('aid_order_cnt')])
+        aid_order_stats = aid_order_stats.with_column(
+            ts_max - pl.col('aid_order_max_ts'))
+        aid_order_stats = aid_order_stats.with_column(
+            pl.col('aid_order_min_ts') - ts_min)
+
+        aid_stats = aid_stats.join(aid_cart_stats, on='aid', how='left')
+        aid_stats = aid_stats.join(aid_order_stats, on='aid', how='left')
+
+        aid_stats = aid_stats.with_columns(
+            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
+        aid_stats = aid_stats.with_columns(
+            pl.col(['aid_cnt', 'aid_cart_cnt', 'aid_order_cnt']).fill_null(0))
+
+        aid_stats = aid_stats.with_column(
+            (pl.col('aid_cart_cnt') / pl.col('aid_cnt')).alias('click_to_cart'))
+        aid_stats = aid_stats.with_column(
+            (pl.col('aid_order_cnt') / pl.col('aid_cnt')).alias('click_to_order'))
+        aid_stats = aid_stats.with_column(
+            (pl.col('aid_order_cnt') / pl.col('aid_cart_cnt')).alias('cart_to_order'))
+
+        aid_stats.write_parquet(
+            f'{self.data_path}features/{self.fold}{self.name}.parquet')
+
+    def fill_null(self, df):
+        df = df.with_columns(
+            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
+        df = df.with_columns(
+            pl.col(['aid_cnt', 'aid_cart_cnt', 'aid_order_cnt']).fill_null(0))
+        df = df.with_columns(
+            pl.col(['click_to_cart', 'click_to_order', 'cart_to_order']).fill_null(-1))
         return df
