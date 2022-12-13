@@ -167,66 +167,51 @@ class W2VReco(CandiadateGen):
             f'{self.data_path}raw/{self.fold}test.parquet').lazy()
         model = Word2Vec.load(
             f'{self.data_path}raw/word2vec_w{self.window_str}.model')
+
         df = df.unique(subset=['session'], keep='last')
         df = df.with_column((pl.col('aid').cast(
             str) + pl.lit('_') + pl.col('type').cast(str)).alias('aid_str'))
         df = df.with_column(pl.col('type').cast(str)).collect()
-        vocab = set(model.wv.index_to_key)
+        vocab = list(set(model.wv.index_to_key))
+        vocab = pl.DataFrame(vocab, columns=['aid_str'])
+        df = df.join(vocab, on='aid_str')
+        df = df.select(pl.col(['session', 'aid_str']))
         annoy_index = AnnoyIndexer(model, 100)
         cands = []
-        for i in tqdm(range(df.shape[0])):
-            cands.extend(self.get_w2v_reco(
-                df[i, 4], df[i, 0], model, vocab, annoy_index))
-        del df, model, vocab, annoy_index
-
-        if os.path.exists('temp.csv'):
-            os.remove('temp.csv')
-
-        with open(f'temp.csv', 'a') as f:
-            f.write('session,aid,name,rank\n')
-            for i in tqdm(cands):
-                x = ','.join([str(j) for j in i]) + '\n'
-                f.write(x)
-        f.close()
-
-        del cands
-        cands = pl.read_csv('temp.csv')
-
-        if os.path.exists('temp.csv'):
-            os.remove('temp.csv')
-
-        columns = cands.select(pl.col('name')).unique().to_dict()
-        for i, column in enumerate(columns['name']):
-            if i == 0:
-                df = cands.filter(pl.col('name') == column).with_column(
-                    pl.col('rank').alias(column)).drop(['name', 'rank'])
-            else:
-                df_temp = cands.filter(pl.col('name') == column).with_column(
-                    pl.col('rank').alias(column)).drop(['name', 'rank'])
-                df = df.join(df_temp, on=['session', 'aid'], how='outer')
-        df = df.select(pl.col('*').cast(pl.Int32))
+        for aid_str in tqdm(df.select(pl.col('aid_str').unique()).to_dict()['aid_str']):
+            cands.append(self.get_w2v_reco(aid_str, model, annoy_index))
+        cands = pl.concat(cands)
+        df = df.join(cands, on='aid_str').drop('aid_str')
         df.write_parquet(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
 
-    def get_w2v_reco(self, aid_str, session, model, vocab, indexer):
+    def get_w2v_reco(self, aid_str, model, indexer):
         cands = []
-        if aid_str in vocab:
-            recos = model.wv.most_similar(aid_str, topn=200, indexer=indexer)
-            clicks_rank = 0
-            carts_rank = 0
-            orders_rank = 0
-            for reco in recos:
-                if len(reco[0]) > 1:
-                    if reco[0][-1] == '0' and clicks_rank < self.max_cands:
-                        cands.append(
-                            [session, int(reco[0][:-2]), f'w2v_{self.window_str}_clicks', clicks_rank])
-                        clicks_rank += 1
-                    elif reco[0][-1] == '1' and carts_rank < self.max_cands:
-                        cands.append([session, int(reco[0][:-2]),
-                                      f'w2v_{self.window_str}_carts', carts_rank])
-                        carts_rank += 1
-                    elif orders_rank < self.max_cands:
-                        cands.append(
-                            [session, int(reco[0][:-2]), f'w2v_{self.window_str}_orders', orders_rank])
-                        orders_rank += 1
+        rank_clicks = 0
+        rank_carts = 0
+        rank_orders = 0
+
+        recos = model.wv.most_similar(aid_str, topn=200, indexer=indexer)
+        for reco in recos:
+            if len(reco[0]) > 1:
+                if reco[0][-1] == '0' and rank_clicks < self.max_cands:
+                    cands.append([aid_str, int(reco[0][:-2]),
+                                 f'w2v_{self.window_str}_clicks', rank_clicks])
+                    rank_clicks += 1
+                elif reco[0][-1] == '1' and rank_carts < self.max_cands:
+                    cands.append([aid_str, int(reco[0][:-2]),
+                                 f'w2v_{self.window_str}_carts', rank_carts])
+                    rank_carts += 1
+                elif rank_orders < self.max_cands:
+                    cands.append([aid_str, int(reco[0][:-2]),
+                                 f'w2v_{self.window_str}_orders', rank_orders])
+                    rank_orders += 1
+
+        cands = pl.DataFrame(cands, orient='row', columns=[
+                             'aid_str', 'aid', 'col_name', 'rank'])
+        cands = cands.pivot(index=['aid_str', 'aid'],
+                            columns='col_name', values='rank')
+        cands = cands.select(pl.col(
+            ['aid_str', 'aid', f'w2v_{self.window_str}_clicks', f'w2v_{self.window_str}_carts', f'w2v_{self.window_str}_orders']))
+
         return cands
