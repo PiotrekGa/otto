@@ -21,6 +21,10 @@ numba = "*"
 lightgbm = "*"
 kaggle = "*"
 annoy = "*"
+pandas-gbq = "*"
+optuna = "*"
+ipywidgets = "*"
+plotly = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"
