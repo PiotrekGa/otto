@@ -27,7 +27,7 @@ def generate_candidates(fold, config):
         values='rank', index=['session', 'aid'], columns='name')
 
     covisit1_clicks = CandsFromSubmission(
-        fold, 'clicks', 'covisit1_clicks', config.data_path, 'covisit1')
+        fold, 'clicks', 'covisit1_clicks', config.data_path, 'covisit1', True)
     covisit1_clicks = covisit1_clicks.load_candidates_file()
 
     candidates = candidates.join(
@@ -35,7 +35,7 @@ def generate_candidates(fold, config):
     del covisit1_clicks
 
     covisit1_carts = CandsFromSubmission(
-        fold, 'carts', 'covisit1_carts', config.data_path, 'covisit1')
+        fold, 'carts', 'covisit1_carts', config.data_path, 'covisit1', True)
     covisit1_carts = covisit1_carts.load_candidates_file()
 
     candidates = candidates.join(
@@ -43,7 +43,7 @@ def generate_candidates(fold, config):
     del covisit1_carts
 
     mf1_clicks = CandsFromSubmission(
-        fold, 'clicks', 'mf1_clicks', config.data_path, 'matrix_factorization1')
+        fold, 'clicks', 'mf1_clicks', config.data_path, 'matrix_factorization1', True)
     mf1_clicks = mf1_clicks.load_candidates_file()
 
     candidates = candidates.join(
@@ -51,7 +51,7 @@ def generate_candidates(fold, config):
     del mf1_clicks
 
     mf1_carts = CandsFromSubmission(
-        fold, 'carts', 'mf1_carts', config.data_path, 'matrix_factorization1')
+        fold, 'carts', 'mf1_carts', config.data_path, 'matrix_factorization1', True)
     mf1_carts = mf1_carts.load_candidates_file()
 
     candidates = candidates.join(
@@ -59,30 +59,30 @@ def generate_candidates(fold, config):
     del mf1_carts
 
     mf1_orders = CandsFromSubmission(
-        fold, 'orders', 'mf1_orders', config.data_path, 'matrix_factorization1')
+        fold, 'orders', 'mf1_orders', config.data_path, 'matrix_factorization1', True)
     mf1_orders = mf1_orders.load_candidates_file()
 
     candidates = candidates.join(
         mf1_orders, on=['session', 'aid'], how='outer')
     del mf1_orders
 
-    # w2v_window09 = W2VReco(
-    #     fold, 'w2v_window09', config.data_path, '09', 30)
-    # w2v_window09 = w2v_window09.load_candidates_file()
-
-    # candidates = candidates.join(
-    #     w2v_window09, on=['session', 'aid'], how='outer')
-    # del w2v_window09
-
-    w2v_window01 = W2VReco(
-        fold, 'w2v_window01', config.data_path, '01', 30)
-    w2v_window01 = w2v_window01.load_candidates_file()
+    w2v_window09 = W2VReco(
+        fold, 'w2v_window09', config.data_path, '09', 30)
+    w2v_window09 = w2v_window09.load_candidates_file()
 
     candidates = candidates.join(
-        w2v_window01, on=['session', 'aid'], how='outer')
-    del w2v_window01
+        w2v_window09, on=['session', 'aid'], how='outer')
+    del w2v_window09
 
     candidates = candidates.fill_null(999)
+
+    columns = candidates.columns
+    columns.remove('session')
+    columns.remove('aid')
+    columns = ['cand__' + i for i in columns]
+    columns = ['session', 'aid'] + columns
+    candidates = candidates.select(columns)
+
     return candidates
 
 
@@ -128,11 +128,12 @@ class RecentEvents(CandiadateGen):
 
 class CandsFromSubmission(CandiadateGen):
 
-    def __init__(self, fold, event_type_str, name, data_path, base_file_name):
+    def __init__(self, fold, event_type_str, name, data_path, base_file_name, reverse=False):
         super().__init__(fold=fold, name=name, data_path=data_path)
         self.fold = fold
         self.event_type_str = event_type_str
         self.base_file_name = base_file_name
+        self.reverse = reverse
 
     def prepare_candidates(self):
         df = pl.read_csv(
@@ -147,7 +148,7 @@ class CandsFromSubmission(CandiadateGen):
             lambda x: x[1]).alias('type_str'))
         df = df.drop(['session_type', 'labels', 'session_type2'])
         df = df.explode('candidates').with_column(
-            pl.col('candidates').cumcount().over('session').alias(self.name))
+            pl.col('candidates').cumcount(reverse=self.reverse).over('session').alias(self.name))
         df = df.filter(pl.col('type_str') == self.event_type_str)
         df = df.select(
             [pl.col('session').cast(pl.Int32), pl.col('candidates').cast(pl.Int32).alias('aid'), pl.col(self.name).cast(pl.Int32)]).collect()
