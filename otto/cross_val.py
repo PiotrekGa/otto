@@ -1,3 +1,4 @@
+import gc
 import polars as pl
 from tqdm import tqdm
 
@@ -10,8 +11,8 @@ from evaluate import evaluate
 class CONFIG:
     score_perfect = False
     data_path = '../data/'
-    submission_name = 'submission'
-    folds = [['valid2__', 'valid3__']]
+    submission_name = 'submission2'
+    folds = [['valid2__', 'valid3__']]  # , ['valid3__', '']]
 
     max_negative_candidates = 20
     features = [
@@ -23,28 +24,28 @@ class CONFIG:
         'click_without_cart',
         'covisit1_clicks',
         'covisit1_carts',
-        'mf1_clicks',
-        'mf1_carts',
-        'mf1_orders',
-        'w2v_01_clicks',
-        'w2v_01_carts',
-        'w2v_01_orders',
+        # 'mf1_clicks',
+        # 'mf1_carts',
+        # 'mf1_orders',
+        # 'w2v_01_clicks',
+        # 'w2v_01_carts',
+        # 'w2v_01_orders',
         'session_interaction_cnt',
         'session_interaction_last_time',
-        'session_last_weekday',
-        'session_last_time_of_day',
+        # 'session_last_weekday',
+        # 'session_last_time_of_day',
         'click_interaction_cnt',
         'click_interaction_last_time',
-        'click_last_weekday',
-        'click_last_time_of_day',
+        # 'click_last_weekday',
+        # 'click_last_time_of_day',
         'cart_interaction_cnt',
         'cart_interaction_last_time',
-        'cart_last_weekday',
-        'cart_last_time_of_day',
+        # 'cart_last_weekday',
+        # 'cart_last_time_of_day',
         'order_interaction_cnt',
         'order_interaction_last_time',
-        'order_last_weekday',
-        'order_last_time_of_day',
+        # 'order_last_weekday',
+        # 'order_last_time_of_day',
         'aid_max_ts',
         'aid_min_ts',
         'aid_cnt',
@@ -76,11 +77,15 @@ def main(config):
         model_carts = train_rerank_model(candidates_train, 'y_carts', config)
         model_orders = train_rerank_model(candidates_train, 'y_orders', config)
 
+        del candidates_train
+        gc.collect()
+
         candidates_valid = generate_candidates(fold[1], config)
         if len(fold[1]) > 0:
             candidates_valid = add_labels(candidates_valid, fold[1], config)
         candidates_valid = add_featues(candidates_valid, fold[1], config)
 
+        gc.collect()
         reco_clicks = select_recommendations(
             candidates_valid, 'clicks', model_clicks, config)
         reco_carts = select_recommendations(
@@ -90,6 +95,9 @@ def main(config):
 
         reco = pl.concat([reco_clicks, reco_carts, reco_orders])
         reco.write_csv(f'{fold[1]}{config.submission_name}.csv')
+
+        del reco_clicks, reco_carts, reco_orders
+        gc.collect()
 
         if config.score_perfect:
             reco_clicks = select_perfect_recommendations(
@@ -102,6 +110,8 @@ def main(config):
             reco_perfect = pl.concat([reco_clicks, reco_carts, reco_orders])
             reco_perfect.write_csv(
                 f'{fold[1]}{config.submission_name}_perfect.csv')
+            del reco_clicks, reco_carts, reco_orders
+            gc.collect()
 
         if len(fold[1]) > 0:
             score = evaluate(

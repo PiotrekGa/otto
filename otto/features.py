@@ -167,6 +167,12 @@ class AidFeatures(Feature):
     def prepare_features(self):
         df = pl.read_parquet(
             f'{self.data_path}raw/{self.fold}test.parquet')
+        df2 = pl.read_parquet(
+            f'{self.data_path}raw/{self.fold}train.parquet')
+        max_train_ts = df2.select(pl.col('ts').max().alias('max'))[0, 0]
+        df2 = df2.filter(pl.col('ts') > (max_train_ts - (3600 * 24 * 7)))
+        df = pl.concat([df, df2])
+        del df2, max_train_ts
         ts_max = df.select(pl.col('ts').max())[0, 0]
         ts_min = df.select(pl.col('ts').min())[0, 0]
 
