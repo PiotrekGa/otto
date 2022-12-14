@@ -47,20 +47,39 @@ def train_rerank_model(candidates, train_column, config):
 
 def select_recommendations(candidates, event_type_str, model, config, k=20):
     print(f'scoring candidates {event_type_str}')
-    x = candidates.select(pl.col(config.features)).to_numpy()
-    scores = model.predict(x)
-    candidates_scored = candidates.select(pl.col(['session', 'aid']))
-    candidates_scored = candidates_scored.with_column(
-        pl.lit(scores).alias('score'))
 
-    candidates_scored = candidates_scored.sort(
-        by=['session', 'score'], reverse=[False, True])
+    batch_size = 100_000
+    batch_num = 0
+    sessions = candidates.select(pl.col('session').unique())
+    sessions_cnt = sessions.shape[0]
 
-    recommendations = candidates_scored.groupby(
-        'session').agg(pl.col('aid'))
+    recommendations = []
+    while (batch_num + 1) * batch_size < sessions_cnt:
+        print('SCORING BATCH', batch_num)
+        batch_sessions = sessions[batch_num *
+                                  batch_size: (batch_num + 1) * batch_size]
+        batch_candidates = candidates.join(batch_sessions, on='session')
 
-    recommendations = recommendations.select([(pl.col('session').cast(str) + pl.lit(f'_{event_type_str}')).alias('session_type'), pl.col(
-        'aid').apply(lambda x: ' '.join([str(i) for i in x[:k]])).alias('labels')])
+        x = batch_candidates.select(pl.col(config.features)).to_numpy()
+        scores = model.predict(x)
+        batch_candidates_scored = batch_candidates.select(
+            pl.col(['session', 'aid']))
+        batch_candidates_scored = batch_candidates_scored.with_column(
+            pl.lit(scores).alias('score'))
+
+        batch_candidates_scored = batch_candidates_scored.sort(
+            by=['session', 'score'], reverse=[False, True])
+
+        batch_recommendations = batch_candidates_scored.groupby(
+            'session').agg(pl.col('aid'))
+
+        batch_recommendations = batch_recommendations.select([(pl.col('session').cast(str) + pl.lit(f'_{event_type_str}')).alias('session_type'), pl.col(
+            'aid').apply(lambda x: ' '.join([str(i) for i in x[:k]])).alias('labels')])
+
+        recommendations.append(batch_recommendations)
+        batch_num += 1
+
+    recommendations = pl.concat(recommendations)
     return recommendations
 
 
