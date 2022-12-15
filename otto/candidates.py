@@ -27,7 +27,7 @@ def generate_candidates(fold, config):
         values='rank', index=['session', 'aid'], columns='name')
 
     covisit1_clicks = CandsFromSubmission(
-        fold, 'clicks', 'covisit1_clicks', config.data_path, 'covisit1', True)
+        fold=fold, event_type_str='clicks', name='covisit1_clicks', data_path=config.data_path, base_file_name='covisit1', reverse=False)
     covisit1_clicks = covisit1_clicks.load_candidates_file()
 
     candidates = candidates.join(
@@ -35,7 +35,7 @@ def generate_candidates(fold, config):
     del covisit1_clicks
 
     covisit1_carts = CandsFromSubmission(
-        fold, 'carts', 'covisit1_carts', config.data_path, 'covisit1', True)
+        fold=fold, event_type_str='carts', name='covisit1_carts', data_path=config.data_path, base_file_name='covisit1', reverse=False)
     covisit1_carts = covisit1_carts.load_candidates_file()
 
     candidates = candidates.join(
@@ -43,7 +43,7 @@ def generate_candidates(fold, config):
     del covisit1_carts
 
     mf1_clicks = CandsFromSubmission(
-        fold, 'clicks', 'mf1_clicks', config.data_path, 'matrix_factorization1', True)
+        fold=fold, event_type_str='clicks', name='mf1_clicks', data_path=config.data_path, base_file_name='matrix_factorization1', reverse=False)
     mf1_clicks = mf1_clicks.load_candidates_file()
 
     candidates = candidates.join(
@@ -51,7 +51,7 @@ def generate_candidates(fold, config):
     del mf1_clicks
 
     mf1_carts = CandsFromSubmission(
-        fold, 'carts', 'mf1_carts', config.data_path, 'matrix_factorization1', True)
+        fold=fold, event_type_str='carts', name='mf1_carts', data_path=config.data_path, base_file_name='matrix_factorization1', reverse=False)
     mf1_carts = mf1_carts.load_candidates_file()
 
     candidates = candidates.join(
@@ -59,20 +59,28 @@ def generate_candidates(fold, config):
     del mf1_carts
 
     mf1_orders = CandsFromSubmission(
-        fold, 'orders', 'mf1_orders', config.data_path, 'matrix_factorization1', True)
+        fold=fold, event_type_str='orders', name='mf1_orders', data_path=config.data_path, base_file_name='matrix_factorization1', reverse=False)
     mf1_orders = mf1_orders.load_candidates_file()
 
     candidates = candidates.join(
         mf1_orders, on=['session', 'aid'], how='outer')
     del mf1_orders
 
-    # w2v_window09 = W2VReco(
-    #     fold, 'w2v_window09', config.data_path, '09', 30)
-    # w2v_window09 = w2v_window09.load_candidates_file()
+    w2v_window09 = W2VReco(
+        fold, 'w2v_window09', config.data_path, '09', 30)
+    w2v_window09 = w2v_window09.load_candidates_file(max_rank=5)
 
-    # candidates = candidates.join(
-    #     w2v_window09, on=['session', 'aid'], how='outer')
-    # del w2v_window09
+    candidates = candidates.join(
+        w2v_window09, on=['session', 'aid'], how='outer')
+    del w2v_window09
+
+    w2v_window01 = W2VReco(
+        fold, 'w2v_window01', config.data_path, '01', 30)
+    w2v_window01 = w2v_window01.load_candidates_file(max_rank=5)
+
+    candidates = candidates.join(
+        w2v_window01, on=['session', 'aid'], how='outer')
+    del w2v_window01
 
     candidates = candidates.fill_null(999)
 
@@ -96,13 +104,22 @@ class CandiadateGen():
     def prepare_candidates(self):
         raise NotImplementedError
 
-    def load_candidates_file(self):
+    @staticmethod
+    def filter(df, max_rank):
+        columns = df.columns
+        columns.remove('session')
+        columns.remove('aid')
+        df.filter(df.select(columns).min(1) <= max_rank)
+        return df
+
+    def load_candidates_file(self, max_rank=1000):
         candidate_file = Path(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
         if not candidate_file.is_file():
             print(f'preparing candidates {self.fold}{self.name}')
             self.prepare_candidates()
-        return pl.read_parquet(candidate_file.as_posix()).lazy()
+        df = pl.read_parquet(candidate_file.as_posix())
+        return self.filter(df, max_rank)
 
 
 class RecentEvents(CandiadateGen):
@@ -146,13 +163,13 @@ class CandsFromSubmission(CandiadateGen):
             lambda x: int(x[0])).alias('session'))
         df = df.with_column(pl.col('session_type2').apply(
             lambda x: x[1]).alias('type_str'))
+        df = df.filter(pl.col('type_str') == self.event_type_str)
         df = df.drop(['session_type', 'labels', 'session_type2'])
         df = df.explode('candidates')
         df = df.with_column(pl.lit(1).alias('one'))
         df = df.with_column(
             (pl.col('one').cumsum(reverse=self.reverse) - 1).over('session').alias(self.name))
         df = df.drop('one')
-        df = df.filter(pl.col('type_str') == self.event_type_str)
         df = df.select(
             [pl.col('session').cast(pl.Int32), pl.col('candidates').cast(pl.Int32).alias('aid'), pl.col(self.name).cast(pl.Int32)]).collect()
         df.write_parquet(

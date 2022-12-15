@@ -11,8 +11,8 @@ from evaluate import evaluate
 class CONFIG:
     score_perfect = True
     data_path = '../data/'
-    submission_name = 'submission2'
-    folds = [['valid2__', 'valid3__']]  # , ['valid3__', '']]
+    submission_name = 'submission'
+    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
 
     max_negative_candidates = 20
     features = [
@@ -27,25 +27,30 @@ class CONFIG:
         'mf1_clicks',
         'mf1_carts',
         'mf1_orders',
-        # 'w2v_09_clicks',
-        # 'w2v_09_carts',
-        # 'w2v_09_orders',
+        'w2v_09_clicks',
+        'w2v_09_carts',
+        'w2v_09_orders',
+        'w2v_01_clicks',
+        'w2v_01_carts',
+        'w2v_01_orders',
+
         'session_interaction_cnt',
         'session_interaction_last_time',
-        # 'session_last_weekday',
-        # 'session_last_time_of_day',
+        'session_last_weekday',
+        'session_last_time_of_day',
         'click_interaction_cnt',
         'click_interaction_last_time',
-        # 'click_last_weekday',
-        # 'click_last_time_of_day',
+        'click_last_weekday',
+        'click_last_time_of_day',
         'cart_interaction_cnt',
         'cart_interaction_last_time',
-        # 'cart_last_weekday',
-        # 'cart_last_time_of_day',
+        'cart_last_weekday',
+        'cart_last_time_of_day',
         'order_interaction_cnt',
         'order_interaction_last_time',
-        # 'order_last_weekday',
-        # 'order_last_time_of_day',
+        'order_last_weekday',
+        'order_last_time_of_day',
+
         'aid_max_ts',
         'aid_min_ts',
         'aid_cnt',
@@ -57,7 +62,22 @@ class CONFIG:
         'aid_order_cnt',
         'click_to_cart',
         'click_to_order',
-        'cart_to_order']
+        'cart_to_order',
+
+        'session_cnt',
+        'session_cnt_distinct',
+        'session_events_per_aid',
+        'click_cnt',
+        'click_cnt_distinct',
+        'click_events_per_aid',
+        'cart_cnt',
+        'cart_cnt_distinct',
+        'cart_events_per_aid',
+        'order_cnt',
+        'order_cnt_distinct',
+        'order_events_per_aid'
+
+    ]
     model_param = {'objective': 'lambdarank',
                    'lambdarank_truncation_level': 15,
                    'verbose': -1,

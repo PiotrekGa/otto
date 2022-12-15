@@ -78,6 +78,38 @@ def add_featues(candidates, fold, config):
     feats = aid_feats_obj.fill_null(feats)
     del aid_feats, aid_feats_obj
 
+    session_feats_obj = SessionFeatures(
+        data_path=config.data_path, fold=fold, name='session_stats')
+    session_feats = session_feats_obj.load_feature_file()
+
+    feats = feats.join(session_feats, how='left', on='session')
+    feats = session_feats_obj.fill_null(feats)
+    del session_feats, session_feats_obj
+
+    session_clicks_feats_obj = SessionFeatures(
+        data_path=config.data_path, fold=fold, name='session_clicks_stats', event_type=0)
+    session_clicks_feats = session_clicks_feats_obj.load_feature_file()
+
+    feats = feats.join(session_clicks_feats, how='left', on='session')
+    feats = session_clicks_feats_obj.fill_null(feats)
+    del session_clicks_feats, session_clicks_feats_obj
+
+    session_carts_feats_obj = SessionFeatures(
+        data_path=config.data_path, fold=fold, name='session_carts_stats', event_type=1)
+    session_carts_feats = session_carts_feats_obj.load_feature_file()
+
+    feats = feats.join(session_carts_feats, how='left', on='session')
+    feats = session_carts_feats_obj.fill_null(feats)
+    del session_carts_feats, session_carts_feats_obj
+
+    session_orders_feats_obj = SessionFeatures(
+        data_path=config.data_path, fold=fold, name='session_orders_stats', event_type=2)
+    session_orders_feats = session_orders_feats_obj.load_feature_file()
+
+    feats = feats.join(session_orders_feats, how='left', on='session')
+    feats = session_orders_feats_obj.fill_null(feats)
+    del session_orders_feats, session_orders_feats_obj
+
     return feats
 
 
@@ -226,4 +258,35 @@ class AidFeatures(Feature):
             pl.col(['aid_cnt', 'aid_cart_cnt', 'aid_order_cnt']).fill_null(0))
         df = df.with_columns(
             pl.col(['click_to_cart', 'click_to_order', 'cart_to_order']).fill_null(-1))
+        return df
+
+
+class SessionFeatures(Feature):
+    def __init__(self, fold, name, data_path, event_type=None):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.event_type = event_type
+        if event_type is not None:
+            self.event_type_dict = {0: 'click', 1: 'cart', 2: 'order'}
+            self.event_type_str = self.event_type_dict[event_type]
+        else:
+            self.event_type_str = 'session'
+
+    def prepare_features(self):
+        df = pl.read_parquet(
+            f'{self.data_path}raw/{self.fold}test.parquet')
+        if self.event_type:
+            df = df.filter(pl.col('type') == self.event_type)
+        df = df.groupby('session').agg([pl.col('aid').count().alias(f'{self.event_type_str}_cnt'), pl.col(
+            'aid').n_unique().alias(f'{self.event_type_str}_cnt_distinct')])
+        df = df.with_column((pl.col(f'{self.event_type_str}_cnt') / pl.col(
+            f'{self.event_type_str}_cnt_distinct')).alias(f'{self.event_type_str}_events_per_aid'))
+        df.write_parquet(
+            f'{self.data_path}features/{self.fold}{self.name}.parquet')
+
+    def fill_null(self, df):
+        df = df.with_columns(
+            pl.col([f'{self.event_type_str}_cnt', f'{self.event_type_str}_cnt_distinct']).fill_null(0))
+        df = df.with_columns(
+            pl.col([f'{self.event_type_str}_events_per_aid']).fill_null(-1))
         return df
