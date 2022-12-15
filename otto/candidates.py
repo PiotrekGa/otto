@@ -21,8 +21,7 @@ def generate_candidates(fold, config):
     ordered_in_session = ordered_in_session.load_candidates_file()
 
     candidates = pl.concat(
-        [clicked_in_session, carted_in_session, ordered_in_session]).collect()
-
+        [clicked_in_session, carted_in_session, ordered_in_session])
     candidates = candidates.pivot(
         values='rank', index=['session', 'aid'], columns='name')
 
@@ -109,17 +108,20 @@ class CandiadateGen():
         columns = df.columns
         columns.remove('session')
         columns.remove('aid')
-        df.filter(df.select(columns).min(1) <= max_rank)
+        df = df.filter(df.select(columns).min(1) <= max_rank)
         return df
 
-    def load_candidates_file(self, max_rank=1000):
+    def load_candidates_file(self, max_rank=None):
         candidate_file = Path(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
         if not candidate_file.is_file():
             print(f'preparing candidates {self.fold}{self.name}')
             self.prepare_candidates()
         df = pl.read_parquet(candidate_file.as_posix())
-        return self.filter(df, max_rank)
+        if max_rank:
+            return self.filter(df, max_rank)
+        else:
+            return df
 
 
 class RecentEvents(CandiadateGen):
