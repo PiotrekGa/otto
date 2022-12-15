@@ -54,7 +54,7 @@ def select_recommendations(candidates, event_type_str, model, config, k=20):
     sessions_cnt = sessions.shape[0]
 
     recommendations = []
-    while (batch_num + 1) * batch_size < sessions_cnt:
+    while batch_num * batch_size < sessions_cnt:
         print('SCORING BATCH', batch_num)
         batch_sessions = sessions[batch_num *
                                   batch_size: (batch_num + 1) * batch_size]
