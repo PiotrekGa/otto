@@ -66,22 +66,22 @@ def generate_candidates(fold, config):
         mf1_orders, on=['session', 'aid'], how='outer')
     del mf1_orders
 
-    w2v_window09 = W2VReco(
-        fold, 'w2v_window09', config.data_path, '09', 30)
-    w2v_window09 = w2v_window09.load_candidates_file()
+    # w2v_window09 = W2VReco(
+    #     fold, 'w2v_window09', config.data_path, '09', 30)
+    # w2v_window09 = w2v_window09.load_candidates_file()
 
-    candidates = candidates.join(
-        w2v_window09, on=['session', 'aid'], how='outer')
-    del w2v_window09
+    # candidates = candidates.join(
+    #     w2v_window09, on=['session', 'aid'], how='outer')
+    # del w2v_window09
 
     candidates = candidates.fill_null(999)
 
-    columns = candidates.columns
-    columns.remove('session')
-    columns.remove('aid')
-    columns = ['cand__' + i for i in columns]
-    columns = ['session', 'aid'] + columns
-    candidates = candidates.select(columns)
+    # columns = candidates.columns
+    # columns.remove('session')
+    # columns.remove('aid')
+    # columns = ['cand__' + i for i in columns]
+    # columns = ['session', 'aid'] + columns
+    # candidates = candidates.select(columns)
 
     return candidates
 
@@ -147,8 +147,11 @@ class CandsFromSubmission(CandiadateGen):
         df = df.with_column(pl.col('session_type2').apply(
             lambda x: x[1]).alias('type_str'))
         df = df.drop(['session_type', 'labels', 'session_type2'])
-        df = df.explode('candidates').with_column(
-            pl.col('candidates').cumcount(reverse=self.reverse).over('session').alias(self.name))
+        df = df.explode('candidates')
+        df = df.with_column(pl.lit(1).alias('one'))
+        df = df.with_column(
+            (pl.col('one').cumsum(reverse=self.reverse) - 1).over('session').alias(self.name))
+        df = df.drop('one')
         df = df.filter(pl.col('type_str') == self.event_type_str)
         df = df.select(
             [pl.col('session').cast(pl.Int32), pl.col('candidates').cast(pl.Int32).alias('aid'), pl.col(self.name).cast(pl.Int32)]).collect()

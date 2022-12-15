@@ -9,27 +9,27 @@ from evaluate import evaluate
 
 
 class CONFIG:
-    score_perfect = False
+    score_perfect = True
     data_path = '../data/'
     submission_name = 'submission2'
     folds = [['valid2__', 'valid3__']]  # , ['valid3__', '']]
 
     max_negative_candidates = 20
     features = [
-        'cand__clicked_in_session',
-        'cand__carted_in_session',
-        'cand__ordered_in_session',
-        'cand__cart_without_order',
-        'cand__click_without_order',
-        'cand__click_without_cart',
-        'cand__covisit1_clicks',
-        'cand__covisit1_carts',
-        'cand__mf1_clicks',
-        'cand__mf1_carts',
-        'cand__mf1_orders',
-        'cand__w2v_09_clicks',
-        'cand__w2v_09_carts',
-        'cand__w2v_09_orders',
+        'clicked_in_session',
+        'carted_in_session',
+        'ordered_in_session',
+        'cart_without_order',
+        'click_without_order',
+        'click_without_cart',
+        'covisit1_clicks',
+        'covisit1_carts',
+        'mf1_clicks',
+        'mf1_carts',
+        'mf1_orders',
+        # 'w2v_09_clicks',
+        # 'w2v_09_carts',
+        # 'w2v_09_orders',
         'session_interaction_cnt',
         'session_interaction_last_time',
         # 'session_last_weekday',
@@ -99,7 +99,7 @@ def main(config):
         del reco_clicks, reco_carts, reco_orders
         gc.collect()
 
-        if config.score_perfect:
+        if config.score_perfect and len(fold[1]) > 0:
             reco_clicks = select_perfect_recommendations(
                 candidates_valid, 'clicks')
             reco_carts = select_perfect_recommendations(
