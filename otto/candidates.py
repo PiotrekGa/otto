@@ -1,9 +1,11 @@
 import polars as pl
-import os
+import numpy as np
+import scipy
 from pathlib import Path
 from tqdm import tqdm
 from gensim.models import Word2Vec
 from gensim.similarities.annoy import AnnoyIndexer
+import implicit
 
 
 def generate_candidates(fold, config):
@@ -88,6 +90,14 @@ def generate_candidates(fold, config):
     candidates = candidates.join(
         w2v_window35, on=['session', 'aid'], how='outer')
     del w2v_window35
+
+    # bpr1 = BPRReco(
+    #     fold, 'bpr1', config.data_path, 30)
+    # bpr1 = bpr1.load_candidates_file(max_rank=5)
+
+    # candidates = candidates.join(
+    #     bpr1, on=['session', 'aid'], how='outer')
+    # del bpr1
 
     candidates = candidates.fill_null(999)
 
@@ -262,3 +272,62 @@ class W2VReco(CandiadateGen):
         cands = cands.select(pl.col(columns))
 
         return cands
+
+
+class BPRReco(CandiadateGen):
+
+    def __init__(self, fold, name, data_path, max_cands):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.max_cands = max_cands
+
+    def prepare_candidates(self):
+        df = pl.read_parquet(
+            f'{self.data_path}raw/{self.fold}test.parquet')
+        df = df.select(pl.col(['session', 'aid', 'type'])).unique()
+        aid_cnt = df.groupby('aid').agg(
+            pl.col('session').n_unique().alias('cnt'))
+        aid_cnt = aid_cnt.filter(pl.col('cnt') >= 5)
+        df = df.join(aid_cnt, on='aid').drop('cnt')
+        df = df.groupby(['session', 'aid']).agg(pl.col('type').max())
+        df = df.with_column(
+            (pl.col('session').rank('dense') - 1).alias('session_idx'))
+        df = df.with_column((pl.col('aid').rank('dense') - 1).alias('aid_idx'))
+        values = df.select(pl.col('type')).to_numpy().ravel()
+        session_idx = df.select(pl.col('session_idx')).to_numpy().ravel()
+        aid_idx = df.select(pl.col('aid_idx')).to_numpy().ravel()
+        session_aid = scipy.sparse.coo_matrix((values, (session_idx, aid_idx)), shape=(
+            np.unique(session_idx).shape[0], np.unique(aid_idx).shape[0]))
+        session_idx = np.unique(session_idx)
+        session_aid = session_aid.tocsr()
+        model = implicit.bpr.BayesianPersonalizedRanking(64)
+        model.fit(session_aid)
+        batch_num = 0
+        batch_size = 1000
+        result = []
+        while batch_num * batch_size < session_idx.shape[0]:
+            batch_sessions = session_idx[batch_num *
+                                         batch_size: (batch_num + 1) * batch_size]
+            batch_aids, _ = model.recommend(
+                batch_sessions, session_aid[batch_sessions], self.max_cands)
+            batch_num += 1
+            batch_sessions = np.repeat(
+                batch_sessions, self.max_cands).reshape(-1, 1)
+            batch_aids = batch_aids.ravel().reshape(-1, 1)
+            result.append(pl.DataFrame(
+                np.hstack([batch_sessions, batch_aids]), columns=['session_idx', 'aid_idx']))
+        result = pl.concat(result)
+        result = result.with_column(pl.lit(1).alias('one'))
+        result = result.with_column((pl.col('one').cumsum().over(
+            'session_idx') - 1).alias('bpr1')).drop('one')
+        session_inv = df.select(pl.col(['session', 'session_idx'])).unique()
+        aid_inv = df.select(pl.col(['aid', 'aid_idx'])).unique()
+
+        session_inv = session_inv.select(pl.col('*').cast(pl.Int32))
+        aid_inv = aid_inv.select(pl.col('*').cast(pl.Int32))
+        result = result.select(pl.col('*').cast(pl.Int32))
+        result = result.join(session_inv, on='session_idx')
+        result = result.join(aid_inv, on='aid_idx')
+        result = result.drop(['session_idx', 'aid_idx'])
+        result.write_parquet(
+            f'{self.data_path}candidates/{self.fold}{self.name}.parquet')

@@ -37,6 +37,7 @@ class CONFIG:
         'w2v_35_clicks',
         'w2v_35_carts',
         'w2v_35_orders',
+        # 'bpr1',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
