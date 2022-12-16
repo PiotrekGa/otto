@@ -1,6 +1,7 @@
 import gc
 import polars as pl
 from tqdm import tqdm
+from time import sleep
 
 from candidates import generate_candidates
 from features import add_labels, add_featues
@@ -33,6 +34,9 @@ class CONFIG:
         'w2v_01_clicks',
         'w2v_01_carts',
         'w2v_01_orders',
+        'w2v_35_clicks',
+        'w2v_35_carts',
+        'w2v_35_orders',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
@@ -85,6 +89,7 @@ class CONFIG:
 
 
 def main(config):
+    sleep(1)
     scores = []
     scores_perfect = []
     for fold in tqdm(config.folds):
@@ -160,5 +165,4 @@ if __name__ == '__main__':
     print(scores)
     print(scores_perfect)
 
-    # {'clicks': 0.5405462010808024, 'carts': 0.4234126178005847,
-    #     'orders': 0.6609028481368907, 'total': 0.5776201143303901}
+# Scores: {'clicks': 0.5291570385645765, 'carts': 0.41361761510673817, 'orders': 0.6536369630594555, 'total': 0.5691831662241524}

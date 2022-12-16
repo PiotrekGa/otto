@@ -81,6 +81,14 @@ def generate_candidates(fold, config):
         w2v_window01, on=['session', 'aid'], how='outer')
     del w2v_window01
 
+    w2v_window35 = W2VReco(
+        fold, 'w2v_window35', config.data_path, '35', 30)
+    w2v_window35 = w2v_window35.load_candidates_file(max_rank=5)
+
+    candidates = candidates.join(
+        w2v_window35, on=['session', 'aid'], how='outer')
+    del w2v_window35
+
     candidates = candidates.fill_null(999)
 
     # columns = candidates.columns
@@ -205,6 +213,7 @@ class W2VReco(CandiadateGen):
             cands.append(self.get_w2v_reco(aid_str, model, annoy_index))
         cands = pl.concat(cands)
         df = df.join(cands, on='aid_str').drop('aid_str')
+        df = df.select(pl.col('*').cast(pl.Int32))
         df.write_parquet(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
 

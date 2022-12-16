@@ -10,7 +10,7 @@ class CONFIG:
 
 if __name__ == '__main__':
 
-    for window in tqdm([5, 9, 11, 15]):
+    for window in tqdm([35]):
         df1 = pd.read_parquet('../data/raw/test.parquet')
         df2 = pd.read_parquet('../data/raw/train.parquet')
         sessions = pd.concat([df1, df2])
