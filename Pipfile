@@ -25,6 +25,8 @@ pandas-gbq = "*"
 optuna = "*"
 ipywidgets = "*"
 plotly = "*"
+implicit = "*"
+h5py = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"

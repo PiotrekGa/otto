@@ -13,7 +13,7 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
+    folds = [['valid2__', 'valid3__']]
 
     max_negative_candidates = 20
     features = [
@@ -38,6 +38,8 @@ class CONFIG:
         'w2v_35_carts',
         'w2v_35_orders',
         # 'bpr1',
+        # 'bpr2',
+        'bpr3',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
