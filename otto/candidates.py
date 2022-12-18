@@ -95,6 +95,12 @@ def generate_candidates(fold, config):
 
     candidates = candidates.fill_null(999)
 
+    cands_cols = candidates.columns
+    cands_cols.remove('aid')
+    cands_cols.remove('session')
+
+    candidates = candidates.with_columns(pl.col(cands_cols).cast*pl.UInt16)
+
     return candidates
 
 

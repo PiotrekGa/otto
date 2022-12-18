@@ -1,8 +1,18 @@
 import polars as pl
 import lightgbm as lgb
+import numpy as np
 
 
 def train_rerank_model(candidates, train_column, config):
+    print(f'preparing training data {train_column}')
+
+    cols_to_float32 = []
+    for i in zip(candidates.columns, candidates.dtypes):
+        if i[1].__name__ == 'Float64':
+            cols_to_float32.append(i[0])
+
+    candidates = candidates.with_columns(
+        pl.col(cols_to_float32).cast(pl.Float32))
 
     candidates = candidates.sort(by='session')
 
@@ -14,32 +24,26 @@ def train_rerank_model(candidates, train_column, config):
     del non_neg
 
     candidates = candidates.sample(frac=1., shuffle=True, seed=42)
-    positive_cands = candidates.filter(pl.col(train_column) == 1)
-    negative_cands = candidates.filter(pl.col(train_column) == 0)
 
-    negative_cands = negative_cands.sort(by='session')
-    negative_cands = negative_cands.with_column(
-        pl.col('session').cumcount().over('session').alias('rank'))
-    negative_cands = negative_cands.filter(
-        pl.col('rank') <= config.max_negative_candidates).drop('rank')
-
-    candidates = pl.concat([positive_cands, negative_cands]).sample(
-        frac=1., shuffle=True, seed=42)
-    del positive_cands, negative_cands
+    candidates = candidates.with_column(
+        pl.col('session').cumcount().over(['session', train_column]).alias('rank'))
+    candidates = candidates.filter((pl.col(train_column) == 1) | (
+        pl.col('rank') <= config.max_negative_candidates)).drop('rank')
 
     candidates = candidates.sort(by='session')
 
-    y = candidates.select(pl.col(train_column)).to_numpy().ravel()
-    x = candidates.select(pl.col(config.features)).to_numpy()
     train_baskets = candidates.groupby(['session']).agg(
         pl.col('aid').count().alias('basket'))
     train_baskets = train_baskets.select(pl.col('basket'))
     train_baskets = train_baskets.to_numpy().ravel()
 
-    del candidates
+    y = candidates.select(pl.col(train_column)).to_numpy().ravel()
+    candidates = candidates.select(
+        pl.col(config.features)).to_numpy().astype(np.float32)
+
     print(f'training model {train_column}')
     train_dataset = lgb.Dataset(
-        data=x, label=y, group=train_baskets)
+        data=candidates, label=y, group=train_baskets)
     model = lgb.train(train_set=train_dataset,
                       params=config.model_param)
     return model
@@ -60,7 +64,8 @@ def select_recommendations(candidates, event_type_str, model, config, k=20):
                                   batch_size: (batch_num + 1) * batch_size]
         batch_candidates = candidates.join(batch_sessions, on='session')
 
-        x = batch_candidates.select(pl.col(config.features)).to_numpy()
+        x = batch_candidates.select(
+            pl.col(config.features)).to_numpy().astype(np.float32)
         scores = model.predict(x)
         batch_candidates_scored = batch_candidates.select(
             pl.col(['session', 'aid']))
