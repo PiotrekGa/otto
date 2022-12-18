@@ -99,7 +99,7 @@ def generate_candidates(fold, config):
     cands_cols.remove('aid')
     cands_cols.remove('session')
 
-    candidates = candidates.with_columns(pl.col(cands_cols).cast*pl.UInt16)
+    candidates = candidates.with_columns(pl.col(cands_cols).cast(pl.UInt16))
 
     return candidates
 
@@ -114,7 +114,7 @@ class CandiadateGen():
     def prepare_candidates(self):
         raise NotImplementedError
 
-    @staticmethod
+    @ staticmethod
     def filter(df, max_rank):
         columns = df.columns
         columns.remove('session')
@@ -243,7 +243,7 @@ class W2VReco(CandiadateGen):
                     rank_orders += 1
 
         cands = pl.DataFrame(cands, orient='row', columns=[
-                             'aid_str', 'aid', 'col_name', 'rank'])
+            'aid_str', 'aid', 'col_name', 'rank'])
         cands = cands.pivot(index=['aid_str', 'aid'],
                             columns='col_name', values='rank')
 
