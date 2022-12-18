@@ -13,7 +13,7 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    folds = [['valid2__', 'valid3__']]
+    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
 
     max_negative_candidates = 20
     features = [
@@ -37,9 +37,6 @@ class CONFIG:
         'w2v_35_clicks',
         'w2v_35_carts',
         'w2v_35_orders',
-        # 'bpr1',
-        # 'bpr2',
-        'bpr3',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
@@ -53,6 +50,7 @@ class CONFIG:
         'cart_interaction_last_time',
         'cart_last_weekday',
         'cart_last_time_of_day',
+
         'order_interaction_cnt',
         'order_interaction_last_time',
         'order_last_weekday',
@@ -61,12 +59,23 @@ class CONFIG:
         'aid_max_ts',
         'aid_min_ts',
         'aid_cnt',
+        'aid_sess_cnt',
+
+        'aid_click_max_ts',
+        'aid_click_min_ts',
+        'aid_click_cnt',
+        'aid_sess_click_cnt',
+
         'aid_cart_max_ts',
         'aid_cart_min_ts',
         'aid_cart_cnt',
+        'aid_sess_cart_cnt',
+
         'aid_order_max_ts',
         'aid_order_min_ts',
         'aid_order_cnt',
+        'aid_sess_order_cnt',
+
         'click_to_cart',
         'click_to_order',
         'cart_to_order',
@@ -82,7 +91,13 @@ class CONFIG:
         'cart_events_per_aid',
         'order_cnt',
         'order_cnt_distinct',
-        'order_events_per_aid'
+        'order_events_per_aid',
+
+        'session_session_aid_cnt_m',
+        'click_session_aid_cnt_m',
+        'cart_session_aid_cnt_m',
+        'order_session_aid_cnt_m'
+
 
     ]
     model_param = {'objective': 'lambdarank',

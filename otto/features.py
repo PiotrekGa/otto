@@ -110,6 +110,16 @@ def add_featues(candidates, fold, config):
     feats = session_orders_feats_obj.fill_null(feats)
     del session_orders_feats, session_orders_feats_obj
 
+    feats = feats.with_column((pl.col(
+        'aid_sess_cnt') / pl.col('session_session_aid_cnt_m')).alias('session_aid_pop_rel'))
+    feats = feats.with_column((pl.col('aid_sess_click_cnt') /
+                              pl.col('click_session_aid_cnt_m')).alias('click_aid_pop_rel'))
+    feats = feats.with_column((pl.col(
+        'aid_sess_cart_cnt') / pl.col('cart_session_aid_cnt_m')).alias('cart_aid_pop_rel'))
+    feats = feats.with_column((pl.col('aid_sess_order_cnt') /
+                              pl.col('order_session_aid_cnt_m')).alias('order_aid_pop_rel'))
+
+    print('FEATURES:\n', feats.columns)
     return feats
 
 
@@ -211,14 +221,26 @@ class AidFeatures(Feature):
         aid_stats = df.groupby('aid').agg([
             pl.col('ts').max().alias('aid_max_ts'),
             pl.col('ts').min().alias('aid_min_ts'),
-            pl.col('session').count().alias('aid_cnt')])
+            pl.col('session').count().alias('aid_cnt'),
+            pl.col('session').n_unique().alias('aid_sess_cnt')])
         aid_stats = aid_stats.with_column(ts_max - pl.col('aid_max_ts'))
         aid_stats = aid_stats.with_column(pl.col('aid_min_ts') - ts_min)
+
+        aid_click_stats = df.filter(pl.col('type') == 0).groupby('aid').agg([
+            pl.col('ts').max().alias('aid_click_max_ts'),
+            pl.col('ts').min().alias('aid_click_min_ts'),
+            pl.col('session').count().alias('aid_click_cnt'),
+            pl.col('session').n_unique().alias('aid_sess_click_cnt')])
+        aid_click_stats = aid_click_stats.with_column(
+            ts_max - pl.col('aid_click_max_ts'))
+        aid_click_stats = aid_click_stats.with_column(
+            pl.col('aid_click_min_ts') - ts_min)
 
         aid_cart_stats = df.filter(pl.col('type') == 1).groupby('aid').agg([
             pl.col('ts').max().alias('aid_cart_max_ts'),
             pl.col('ts').min().alias('aid_cart_min_ts'),
-            pl.col('session').count().alias('aid_cart_cnt')])
+            pl.col('session').count().alias('aid_cart_cnt'),
+            pl.col('session').n_unique().alias('aid_sess_cart_cnt')])
         aid_cart_stats = aid_cart_stats.with_column(
             ts_max - pl.col('aid_cart_max_ts'))
         aid_cart_stats = aid_cart_stats.with_column(
@@ -227,24 +249,26 @@ class AidFeatures(Feature):
         aid_order_stats = df.filter(pl.col('type') == 2).groupby('aid').agg([
             pl.col('ts').max().alias('aid_order_max_ts'),
             pl.col('ts').min().alias('aid_order_min_ts'),
-            pl.col('session').count().alias('aid_order_cnt')])
+            pl.col('session').count().alias('aid_order_cnt'),
+            pl.col('session').n_unique().alias('aid_sess_order_cnt')])
         aid_order_stats = aid_order_stats.with_column(
             ts_max - pl.col('aid_order_max_ts'))
         aid_order_stats = aid_order_stats.with_column(
             pl.col('aid_order_min_ts') - ts_min)
 
+        aid_stats = aid_stats.join(aid_click_stats, on='aid', how='left')
         aid_stats = aid_stats.join(aid_cart_stats, on='aid', how='left')
         aid_stats = aid_stats.join(aid_order_stats, on='aid', how='left')
 
         aid_stats = aid_stats.with_columns(
-            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
+            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_click_max_ts', 'aid_click_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
         aid_stats = aid_stats.with_columns(
-            pl.col(['aid_cnt', 'aid_cart_cnt', 'aid_order_cnt']).fill_null(0))
+            pl.col(['aid_cnt', 'aid_click_cnt', 'aid_cart_cnt', 'aid_order_cnt', 'aid_sess_cnt', 'aid_sess_click_cnt', 'aid_sess_cart_cnt', 'aid_sess_order_cnt']).fill_null(0))
 
         aid_stats = aid_stats.with_column(
-            (pl.col('aid_cart_cnt') / pl.col('aid_cnt')).alias('click_to_cart'))
+            (pl.col('aid_cart_cnt') / pl.col('aid_click_cnt')).alias('click_to_cart'))
         aid_stats = aid_stats.with_column(
-            (pl.col('aid_order_cnt') / pl.col('aid_cnt')).alias('click_to_order'))
+            (pl.col('aid_order_cnt') / pl.col('aid_click_cnt')).alias('click_to_order'))
         aid_stats = aid_stats.with_column(
             (pl.col('aid_order_cnt') / pl.col('aid_cart_cnt')).alias('cart_to_order'))
 
@@ -253,9 +277,9 @@ class AidFeatures(Feature):
 
     def fill_null(self, df):
         df = df.with_columns(
-            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
+            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_click_max_ts', 'aid_click_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
         df = df.with_columns(
-            pl.col(['aid_cnt', 'aid_cart_cnt', 'aid_order_cnt']).fill_null(0))
+            pl.col(['aid_cnt', 'aid_click_cnt', 'aid_cart_cnt', 'aid_order_cnt', 'aid_sess_cnt', 'aid_sess_click_cnt', 'aid_sess_cart_cnt', 'aid_sess_order_cnt']).fill_null(0))
         df = df.with_columns(
             pl.col(['click_to_cart', 'click_to_order', 'cart_to_order']).fill_null(-1))
         return df
@@ -277,10 +301,18 @@ class SessionFeatures(Feature):
             f'{self.data_path}raw/{self.fold}test.parquet')
         if self.event_type:
             df = df.filter(pl.col('type') == self.event_type)
-        df = df.groupby('session').agg([pl.col('aid').count().alias(f'{self.event_type_str}_cnt'), pl.col(
-            'aid').n_unique().alias(f'{self.event_type_str}_cnt_distinct')])
+        aid_cnt = df.groupby('aid').agg(
+            pl.col('session').n_unique().alias(f'{self.event_type_str}_aid_cnt'))
+        df = df.join(aid_cnt, on='aid')
+        df = df.groupby('session').agg([pl.col('aid').count().alias(f'{self.event_type_str}_cnt'),
+                                        pl.col('aid').n_unique().alias(
+                                            f'{self.event_type_str}_cnt_distinct'),
+                                        pl.col(f'{self.event_type_str}_aid_cnt').median().alias(
+                                            f'{self.event_type_str}_session_aid_cnt_m')
+                                        ])
         df = df.with_column((pl.col(f'{self.event_type_str}_cnt') / pl.col(
             f'{self.event_type_str}_cnt_distinct')).alias(f'{self.event_type_str}_events_per_aid'))
+
         df.write_parquet(
             f'{self.data_path}features/{self.fold}{self.name}.parquet')
 
@@ -288,5 +320,5 @@ class SessionFeatures(Feature):
         df = df.with_columns(
             pl.col([f'{self.event_type_str}_cnt', f'{self.event_type_str}_cnt_distinct']).fill_null(0))
         df = df.with_columns(
-            pl.col([f'{self.event_type_str}_events_per_aid']).fill_null(-1))
+            pl.col([f'{self.event_type_str}_events_per_aid', f'{self.event_type_str}_session_aid_cnt_m']).fill_null(-1))
         return df
