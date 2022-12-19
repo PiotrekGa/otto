@@ -13,9 +13,9 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
+    folds = [['valid3__', '']]
 
-    max_negative_candidates = 10
+    max_negative_candidates = 20
 
     features = [
         'clicked_in_session',
@@ -114,11 +114,16 @@ def main(config):
     for fold in tqdm(config.folds):
         print('FOLD', fold[0], fold[1])
         candidates_train = generate_candidates(fold[0], config)
+        gc.collect()
         candidates_train = add_labels(candidates_train, fold[0], config)
+        gc.collect()
         candidates_train = add_featues(candidates_train, fold[0], config)
+        gc.collect()
 
         model_clicks = train_rerank_model(candidates_train, 'y_clicks', config)
+        gc.collect()
         model_carts = train_rerank_model(candidates_train, 'y_carts', config)
+        gc.collect()
         model_orders = train_rerank_model(candidates_train, 'y_orders', config)
 
         del candidates_train
@@ -127,16 +132,19 @@ def main(config):
         candidates_valid = generate_candidates(fold[1], config)
         if len(fold[1]) > 0:
             candidates_valid = add_labels(candidates_valid, fold[1], config)
+            gc.collect()
         candidates_valid = add_featues(candidates_valid, fold[1], config)
-
         gc.collect()
+
         reco_clicks = select_recommendations(
             candidates_valid, 'clicks', model_clicks, config)
+        gc.collect()
         reco_carts = select_recommendations(
             candidates_valid, 'carts', model_carts, config)
+        gc.collect()
         reco_orders = select_recommendations(
             candidates_valid, 'orders', model_orders, config)
-
+        gc.collect()
         reco = pl.concat([reco_clicks, reco_carts, reco_orders])
         reco.write_csv(f'{fold[1]}{config.submission_name}.csv')
 
@@ -146,10 +154,13 @@ def main(config):
         if config.score_perfect and len(fold[1]) > 0:
             reco_clicks = select_perfect_recommendations(
                 candidates_valid, 'clicks')
+            gc.collect()
             reco_carts = select_perfect_recommendations(
                 candidates_valid, 'carts')
+            gc.collect()
             reco_orders = select_perfect_recommendations(
                 candidates_valid, 'orders')
+            gc.collect()
 
             reco_perfect = pl.concat([reco_clicks, reco_carts, reco_orders])
             reco_perfect.write_csv(
@@ -162,13 +173,13 @@ def main(config):
                 f'{config.data_path}raw/{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}.csv')
             print(f"Scores: {score}")
             scores.append(score)
-
+            gc.collect()
             if config.score_perfect:
                 score_perfect = evaluate(
                     f'{config.data_path}raw/{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}_perfect.csv')
                 print(f"Scores perfect: {score_perfect}")
                 scores_perfect.append(score_perfect)
-
+                gc.collect()
     if len(scores) > 0:
         scores = pl.DataFrame(scores).mean()
         scores_perfect = None
@@ -184,5 +195,5 @@ if __name__ == '__main__':
     print(scores)
     print(scores_perfect)
 
-# Scores: {'clicks': 0.5298544046840908, 'carts': 0.41446551434804496, 'orders': 0.6539907688843859, 'total': 0.5697195561034541}
+# Scores: {'clicks': 0.5303227677379561, 'carts': 0.41461036380176824, 'orders': 0.6544282015406635, 'total': 0.5700723068387241}
 # Scores perfect: {'clicks': 0.5815975898290418, 'carts': 0.45890250041953345, 'orders': 0.6792975346166835, 'total': 0.6034090298787743}
