@@ -288,7 +288,7 @@ class Covisit(CandiadateGen):
         self.type_weight = type_weight
         self.days_back = days_back
         self.session_hist = session_hist
-        self.before_time = before_time
+        self.before_time = before_time  # positive number
         self.after_time = after_time
         self.normalize = normalize
         self.time_weight_coef = time_weight_coef
@@ -312,7 +312,7 @@ class Covisit(CandiadateGen):
             pl.col('session').cumcount().over('session').alias('n'))
         df = df.filter(pl.col('n') < self.session_hist).drop('n')
         df = df.join(df, on='session')
-        df = df.filter(((pl.col('ts_right') - pl.col('ts')) >= self.before_time) & ((pl.col(
+        df = df.filter(((pl.col('ts_right') - pl.col('ts')) >= - self.before_time) & ((pl.col(
             'ts_right') - pl.col('ts')) <= self.after_time) & (pl.col('aid') != pl.col('aid_right')))
         df = df.with_column(pl.col('type_right').apply(
             lambda x: self.type_weight[x]).alias('wgt'))
@@ -328,7 +328,7 @@ class Covisit(CandiadateGen):
             df = df.join(aid_wgt_sum, on='aid')
             df = df.with_column(
                 pl.col('wgt') / pl.col('wgt_sum')).drop('wgt_sum')
-        df = df.filter(pl.col('n') < self.top_recos).drop('n')
+        df = df.filter(pl.col('n') < self.max_cands).drop('n')
 
         df = df.collect()
 
