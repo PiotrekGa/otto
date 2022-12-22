@@ -39,6 +39,7 @@ class CONFIG:
         'w2v_35_carts',
         'w2v_35_orders',
         'civisit2',
+        'civisit3',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
