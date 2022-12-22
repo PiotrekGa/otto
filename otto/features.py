@@ -232,7 +232,7 @@ class AidFeatures(Feature):
             pl.col('session').count().alias('aid_click_cnt'),
             pl.col('session').n_unique().alias('aid_sess_click_cnt')])
         aid_click_stats = aid_click_stats.with_column(
-            ts_max - pl.col('aid_click_max_ts'))
+            (pl.col('aid_click_max_ts') - ts_max).abs())
         aid_click_stats = aid_click_stats.with_column(
             pl.col('aid_click_min_ts') - ts_min)
 
@@ -242,7 +242,7 @@ class AidFeatures(Feature):
             pl.col('session').count().alias('aid_cart_cnt'),
             pl.col('session').n_unique().alias('aid_sess_cart_cnt')])
         aid_cart_stats = aid_cart_stats.with_column(
-            ts_max - pl.col('aid_cart_max_ts'))
+            (pl.col('aid_cart_max_ts') - ts_max).abs())
         aid_cart_stats = aid_cart_stats.with_column(
             pl.col('aid_cart_min_ts') - ts_min)
 
@@ -252,7 +252,7 @@ class AidFeatures(Feature):
             pl.col('session').count().alias('aid_order_cnt'),
             pl.col('session').n_unique().alias('aid_sess_order_cnt')])
         aid_order_stats = aid_order_stats.with_column(
-            ts_max - pl.col('aid_order_max_ts'))
+            (pl.col('aid_order_max_ts') - ts_max).abs())
         aid_order_stats = aid_order_stats.with_column(
             pl.col('aid_order_min_ts') - ts_min)
 
