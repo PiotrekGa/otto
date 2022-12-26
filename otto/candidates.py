@@ -413,30 +413,18 @@ class CovisitMaster(CandiadateGen):
         df = df.with_column(
             pl.col('session').cumcount().over('session').alias('n'))
         df = df.filter(pl.col('n') < self.session_hist).drop('n')
-        print('***** 1')
         df = df.join(df, on='session')
-        print('***** 2')
         df = df.filter(((pl.col('ts_right') - pl.col('ts')) >= - self.before_time) & ((pl.col(
             'ts_right') - pl.col('ts')) <= self.after_time) & (pl.col('aid') != pl.col('aid_right')))
-        print('***** 2.1')
         df = df.filter(pl.col('type').is_in(self.left_types) &
                        pl.col('type_right').is_in(self.right_types))
-        print('***** 2.2')
         df = df.with_column(pl.col('type_right').apply(
             lambda x: self.type_weight[x]).alias('wgt'))
-        print('***** 2.3')
         df = df.with_column(pl.col('wgt') * (1 + self.time_weight_coef *
                             ((pl.col('ts') - min_ts) / (max_ts - min_ts))))
-        print('***** 2.4')
         df = df.select(['aid', 'aid_right', 'wgt'])
-        print('***** 2.5')
         df = df.groupby(['aid', 'aid_right']).agg(pl.col('wgt').sum())
-        # df = df.with_column(pl.col('wgt').cumsum().over(['aid', 'aid_right']))
-        # print('***** 2.6')
-        # df = df.unique(subset=['aid', 'aid_right'], keep='last')
-        print('***** 3')
         df = df.sort(by=['aid', 'wgt'], reverse=[False, True])
-        print('***** 3.1')
         df = df.with_column(pl.col('aid').cumcount().over('aid').alias('n'))
         if self.normalize:
             aid_wgt_sum = df.groupby('aid').agg(
@@ -445,7 +433,6 @@ class CovisitMaster(CandiadateGen):
             df = df.with_column(
                 pl.col('wgt') / pl.col('wgt_sum')).drop('wgt_sum')
         df = df.filter(pl.col('n') < self.max_cands).drop('n')
-        print('***** 4')
         reco = pl.read_parquet(
             f'../data/raw/{self.fold}test.parquet')
 
@@ -462,23 +449,17 @@ class CovisitMaster(CandiadateGen):
                   1000000).cast(pl.Datetime).dt.hour() / 6).cast(pl.UInt8).alias('daypart'))
             reco = reco.filter(pl.col('daypart').is_in(
                 self.dayparts)).drop('daypart')
-        print('***** 5')
         reco = reco.sort(by=['session', 'ts'], reverse=[False, True])
         reco = reco.with_column(
             pl.col('session').cumcount().over('session').alias('n'))
         reco = reco.filter(pl.col('n') < self.session_hist).drop('n')
-        print('***** 6')
+        reco = reco.filter(pl.col('type').is_in(self.left_types))
         reco = reco.join(df, on='aid')
-        print('***** 7')
-        # reco = reco.with_column(pl.col(
-        #     'wgt') * (1 + self.time_weight_coef * ((pl.col('ts') - min_ts) / (max_ts - min_ts))))
         reco = reco.groupby(['session', 'aid_right']).agg(pl.col('wgt').sum())
-        print('***** 8')
         reco = reco.sort(by=['session', 'wgt'], reverse=[False, True])
         reco = reco.with_column(
             pl.col('session').cumcount().over('session').alias('rank'))
         reco = reco.filter(pl.col('rank') < self.max_cands).drop('wgt')
-        print('***** 9')
         reco.columns = ['session', 'aid', self.name]
 
         if return_df:
