@@ -2,8 +2,48 @@ import polars as pl
 from candidates import CovisitMaster
 import gc
 import optuna
-from evaluate import evaluate
 import joblib
+
+
+def f1_score(preds, fold, path, event_optimized=None):
+    weight_dict = {0: .1, 1: .3, 2: .6}
+    event_dict = {'clicks': 0, 'carts': 1, 'orders': 2}
+    if event_optimized is not None:
+        event_optimized = event_dict[event_optimized]
+    max_pred_len = preds.select(pl.col('aid').apply(len)).max()[0, 0]
+    print(f'EVALUATION FOR {max_pred_len} PREDICTIONS')
+
+    labels = pl.read_parquet(f'{path}{fold}test_labels.parquet')
+    labels = labels.groupby(['session', 'type']).agg_list()
+    labels.columns = ['session', 'type', 'labels']
+    labels = labels.join(preds, on='session', how='left')
+    labels = labels.with_column(pl.when(pl.col('aid').is_null()).then([]).otherwise(pl.col('aid'))
+                                .keep_name())
+    labels = labels.with_column(pl.struct(['labels', 'aid']).apply(
+        lambda x: sum([1 for i in x['labels'] if i in x['aid']])).alias('met1'))
+    labels = labels.with_column(pl.col('labels').apply(
+        lambda x: min(max_pred_len, len(x))).alias('met2'))
+    labels = labels.with_column(pl.struct(['labels', 'aid']).apply(
+        lambda x: sum([1 for i in x['aid'] if i in x['labels']])).alias('met3'))
+    labels = labels.with_column(
+        pl.col('aid').apply(lambda x: len(x)).alias('met4'))
+
+    results = labels.select(
+        ['type', 'met1', 'met2', 'met3', 'met4']).groupby('type').sum()
+    results = results.with_column(
+        (pl.col('met1') / pl.col('met2')).alias('recall'))
+    results = results.with_column(
+        (pl.col('met3') / pl.col('met4')).alias('precision'))
+    if event_optimized is None:
+        results = results.with_column(pl.col('type').apply(
+            lambda x: weight_dict[x]).alias('weight'))
+        results = results.select(
+            [pl.col('recall') * pl.col('weight'), pl.col('precision') * pl.col('weight')]).sum()
+    else:
+        results = results.filter(pl.col('type') == event_optimized)
+        results = results.select(pl.col(['recall', 'precision']))
+    print(results)
+    return (2 * results[0, 0] * results[0, 1]) / (results[0, 0] + results[0, 1])
 
 
 def objective(trial):
@@ -44,38 +84,18 @@ def objective(trial):
     reco = reco.groupby(
         'session').agg(pl.col('aid'))
 
-    reco_main = reco.select([(pl.col('session').cast(str) + pl.lit(f'_{event_optimized}')).alias('session_type'), pl.col(
-        'aid').apply(lambda x: ' '.join([str(i) for i in x])).alias('labels')])
-    print('reco_main ready')
-    if event_optimized == 'orders':
-        reco_rest1 = reco_main.with_column(
-            pl.col('session_type').str.replace('orders', 'clicks'))
-        reco_rest = reco_main.with_column(
-            pl.col('session_type').str.replace('orders', 'carts'))
-    elif event_optimized == 'carts':
-        reco_rest1 = reco_main.with_column(
-            pl.col('session_type').str.replace('carts', 'clicks'))
-        reco_rest = reco_main.with_column(
-            pl.col('session_type').str.replace('carts', 'orders'))
-    elif event_optimized == 'clicks':
-        reco_rest1 = reco_main.with_column(
-            pl.col('session_type').str.replace('clicks', 'carts'))
-        reco_rest = reco_main.with_column(
-            pl.col('session_type').str.replace('clicks', 'orders'))
-    reco_main = pl.concat([reco_main, reco_rest1, reco_rest])
-    reco_main.write_csv('optuna.csv')
-    del reco, reco_main, reco_rest, reco_rest1
-    scores = evaluate(f'../data/raw/{fold}test_labels.jsonl', 'optuna.csv')
-    print(scores)
+    print(reco)
+    score = f1_score(reco, fold, '../data/raw/', )
+    print(score)
     gc.collect()
-    return scores[event_optimized]
+    return score
 
 
 if __name__ == '__main__':
     fold = 'valid2__'
     event_optimized = 'orders'
-    # study = optuna.create_study(direction="maximize")
-    study = joblib.load(f'{event_optimized}_study.pkl')
+    study = optuna.create_study(direction="maximize")
+    # study = joblib.load(f'{event_optimized}_study.pkl')
     study.enqueue_trial({'cart_weight': 6,
                          'order_weight': 3,
                          'days_back': 14,
