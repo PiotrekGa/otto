@@ -13,9 +13,9 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    folds = [['valid2__', 'valid3__']]  # , ['valid3__', '']]
+    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
 
-    sample_size = 100_000
+    sample_size = None
     max_negative_candidates = 20
 
     features = [
@@ -45,6 +45,8 @@ class CONFIG:
         'civisit5',
         'covisit6',
         'covisit7',
+
+        'tg_covisit1',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
