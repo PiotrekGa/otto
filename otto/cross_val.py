@@ -5,7 +5,7 @@ from time import sleep
 
 from candidates import generate_candidates
 from features import add_labels, add_featues
-from rerank_model import train_rerank_model, select_recommendations, select_perfect_recommendations
+from rerank_model import train_rerank_model, select_recommendations, select_perfect_recommendations, sample_candidates
 from evaluate import evaluate
 
 
@@ -13,8 +13,9 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
+    folds = [['valid2__', 'valid3__']]  # , ['valid3__', '']]
 
+    sample_size = 100_000
     max_negative_candidates = 20
 
     features = [
@@ -42,8 +43,8 @@ class CONFIG:
         'civisit3',
         'civisit4',
         'civisit5',
-        'civisit6',
-        'civisit7',
+        'covisit6',
+        'covisit7',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
@@ -123,14 +124,18 @@ def main(config):
         gc.collect()
         candidates_train = add_labels(candidates_train, fold[0], config)
         gc.collect()
-        candidates_train = add_featues(candidates_train, fold[0], config)
-        gc.collect()
 
-        model_clicks = train_rerank_model(candidates_train, 'y_clicks', config)
-        gc.collect()
-        model_carts = train_rerank_model(candidates_train, 'y_carts', config)
-        gc.collect()
-        model_orders = train_rerank_model(candidates_train, 'y_orders', config)
+        models = {}
+        for target in ['y_clicks', 'y_carts', 'y_orders']:
+
+            candidates_target = sample_candidates(
+                candidates_train, target, config)
+
+            candidates_target = add_featues(candidates_target, fold[0], config)
+            gc.collect()
+            models[target] = train_rerank_model(
+                candidates_target, target, config)
+            gc.collect()
 
         del candidates_train
         gc.collect()
@@ -143,13 +148,13 @@ def main(config):
         gc.collect()
 
         reco_clicks = select_recommendations(
-            candidates_valid, 'clicks', model_clicks, config)
+            candidates_valid, 'clicks', models['y_clicks'], config)
         gc.collect()
         reco_carts = select_recommendations(
-            candidates_valid, 'carts', model_carts, config)
+            candidates_valid, 'carts', models['y_carts'], config)
         gc.collect()
         reco_orders = select_recommendations(
-            candidates_valid, 'orders', model_orders, config)
+            candidates_valid, 'orders', models['y_orders'], config)
         gc.collect()
         reco = pl.concat([reco_clicks, reco_carts, reco_orders])
         reco.write_csv(f'{fold[1]}{config.submission_name}.csv')

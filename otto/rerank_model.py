@@ -3,9 +3,11 @@ import lightgbm as lgb
 import numpy as np
 
 
-def train_rerank_model(candidates, train_column, config):
+def sample_candidates(candidates, train_column, config):
     print(f'preparing training data {train_column}')
 
+    if config.sample_size is not None:
+        candidates = candidates[:config.sample_size]
     cols_to_float32 = []
     for i in zip(candidates.columns, candidates.dtypes):
         if i[1].__name__ == 'Float64':
@@ -20,12 +22,17 @@ def train_rerank_model(candidates, train_column, config):
         pl.col('is_negative') == 0).select(pl.col('session'))
     candidates = candidates.join(non_neg, on='session', how='inner')
     del non_neg
-    candidates = candidates.sample(frac=1., shuffle=True, seed=42)
+    candidates = candidates.sample(
+        frac=1., shuffle=True, seed=42)
 
     candidates = candidates.with_column(
         pl.col('session').cumcount().over(['session', train_column]).alias('rank'))
     candidates = candidates.filter((pl.col(train_column) == 1) | (
         pl.col('rank') <= config.max_negative_candidates)).drop('rank')
+    return candidates
+
+
+def train_rerank_model(candidates, train_column, config):
 
     candidates = candidates.sort(by='session')
     train_baskets = candidates.groupby(['session']).agg(
@@ -33,7 +40,7 @@ def train_rerank_model(candidates, train_column, config):
     train_baskets = train_baskets.select(pl.col('basket'))
     train_baskets = train_baskets.to_numpy().ravel()
 
-    y = candidates.select(pl.col(train_column)).to_numpy(np.int32).ravel()
+    y = candidates.select(pl.col(train_column)).to_numpy().ravel()
     candidates = candidates.select(
         pl.col(config.features)).to_numpy()
 
