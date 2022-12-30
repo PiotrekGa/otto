@@ -40,6 +40,10 @@ class CONFIG:
         'w2v_35_orders',
         'civisit2',
         'civisit3',
+        'civisit4',
+        'civisit5',
+        'civisit6',
+        'civisit7',
 
         'session_interaction_cnt',
         'session_interaction_last_time',

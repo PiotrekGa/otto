@@ -109,6 +109,38 @@ def generate_candidates(fold, config):
         covisit3, on=['session', 'aid'], how='outer')
     del covisit3
 
+    covisit4 = CovisitMaster(fold=fold, name='civisit4', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1], right_types=[0])
+    covisit4 = covisit4.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit4, on=['session', 'aid'], how='outer')
+    del covisit4
+
+    covisit5 = CovisitMaster(fold=fold, name='civisit5', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1], right_types=[1])
+    covisit5 = covisit5.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit5, on=['session', 'aid'], how='outer')
+    del covisit5
+
+    covisit6 = CovisitMaster(fold=fold, name='covisit6', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1, 2], right_types=[1, 2])
+    covisit6 = covisit6.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit6, on=['session', 'aid'], how='outer')
+    del covisit6
+
+    covisit7 = CovisitMaster(fold=fold, name='covisit7', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 17, 2: 42},
+                             days_back=7, before_time=4 * 60 * 60, after_time=24 * 60 * 60, left_types=[1], right_types=[1], time_weight_coef=0.15, session_hist=24)
+    covisit7 = covisit7.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit7, on=['session', 'aid'], how='outer')
+    del covisit7
+
     candidates = candidates.fill_null(999)
 
     cands_cols = candidates.columns

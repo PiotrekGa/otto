@@ -13,16 +13,13 @@ def train_rerank_model(candidates, train_column, config):
 
     candidates = candidates.with_columns(
         pl.col(cols_to_float32).cast(pl.Float32))
-
     candidates = candidates.sort(by='session')
-
     non_neg = candidates.groupby('session').agg(
         [pl.col(train_column).max().alias('is_positive'), pl.col(train_column).min().alias('is_negative')])
     non_neg = non_neg.filter(pl.col('is_positive') > 0).filter(
         pl.col('is_negative') == 0).select(pl.col('session'))
     candidates = candidates.join(non_neg, on='session', how='inner')
     del non_neg
-
     candidates = candidates.sample(frac=1., shuffle=True, seed=42)
 
     candidates = candidates.with_column(
@@ -31,19 +28,19 @@ def train_rerank_model(candidates, train_column, config):
         pl.col('rank') <= config.max_negative_candidates)).drop('rank')
 
     candidates = candidates.sort(by='session')
-
     train_baskets = candidates.groupby(['session']).agg(
         pl.col('aid').count().alias('basket'))
     train_baskets = train_baskets.select(pl.col('basket'))
     train_baskets = train_baskets.to_numpy().ravel()
 
-    y = candidates.select(pl.col(train_column)).to_numpy().ravel()
+    y = candidates.select(pl.col(train_column)).to_numpy(np.int32).ravel()
     candidates = candidates.select(
-        pl.col(config.features)).to_numpy().astype(np.float32)
+        pl.col(config.features)).to_numpy()
 
     print(f'training model {train_column}')
     train_dataset = lgb.Dataset(
         data=candidates, label=y, group=train_baskets)
+    del candidates, y, train_baskets
     model = lgb.train(train_set=train_dataset,
                       params=config.model_param)
     return model
