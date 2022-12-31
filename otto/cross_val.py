@@ -137,6 +137,7 @@ def main(config):
             gc.collect()
             models[target] = train_rerank_model(
                 candidates_target, target, config)
+            del candidates_target
             gc.collect()
 
         del candidates_train
@@ -208,5 +209,5 @@ if __name__ == '__main__':
     print(scores)
     print(scores_perfect)
 
-# Scores: {'clicks': 0.5323509984073355, 'carts': 0.41837644959857273, 'orders': 0.6570849616442321, 'total': 0.5729990117068446}
-# Scores perfect: {'clicks': 0.5957445706710365, 'carts': 0.47546833184656556, 'orders': 0.6904456345185829, 'total': 0.616482337332223}
+# Scores: {'clicks': 0.5326283337782974, 'carts': 0.419418659082679, 'orders': 0.656965954230392, 'total': 0.5732680036408686}
+# Scores perfect: {'clicks': 0.6036451764359297, 'carts': 0.48770811068618014, 'orders': 0.6975699972660458, 'total': 0.6252189492090745}

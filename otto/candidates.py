@@ -142,7 +142,7 @@ def generate_candidates(fold, config):
     del covisit7
 
     tg_covisit1 = TimeGroupCovisitMaster(fold=fold, name='tg_covisit1', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
-                                         days_back=14, before_time=0, after_time=24 * 60 * 60)
+                                         days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[0, 1, 2])
     tg_covisit1 = tg_covisit1.load_candidates_file(max_rank=20)
 
     candidates = candidates.join(
