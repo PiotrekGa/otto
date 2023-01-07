@@ -43,7 +43,8 @@ def f1_score(preds, fold, path, event_optimized=None):
         results = results.filter(pl.col('type') == event_optimized)
         results = results.select(pl.col(['recall', 'precision']))
     print(results)
-    return (2 * results[0, 0] * results[0, 1]) / (results[0, 0] + results[0, 1])
+    return results[0, 0]
+    # return (2 * results[0, 0] * results[0, 1]) / (results[0, 0] + results[0, 1])
 
 
 def objective(trial):
@@ -52,21 +53,27 @@ def objective(trial):
     cart_weight = trial.suggest_float('cart_weight', 0, 50)
     order_weight = trial.suggest_float('order_weight', 0, 50)
     days_back = trial.suggest_int("days_back", 1, 21)
-    before_time = 0
+    before_time = trial.suggest_int("before_time", 0, 48)
     print('before_time', before_time)
     before_time = before_time * 60 * 60
     after_time = trial.suggest_int("after_time", 0, 48)
     print('after_time', after_time)
     after_time = after_time * 60 * 60
-    left_types = [0, 1, 2]
+    left_types = trial.suggest_categorical(
+        'left_types', ['1', '2', '0', '12', '01', '02', '012'])
+    print('left_types', left_types)
+    left_types = [int(i) for i in left_types]
     right_types = trial.suggest_categorical(
         'right_types', ['1', '2', '0', '12', '01', '02', '012'])
     print('right_types', right_types)
     right_types = [int(i) for i in right_types]
     time_weight_coef = trial.suggest_float('time_weight_coef', 0, 10)
     normalize = trial.suggest_categorical('normalize', [False, True])
-    session_hist = trial.suggest_int("session_hist", 1, 50)
-    joblib.dump(study, f'{event_optimized}_study.pkl')
+    session_hist = trial.suggest_int("session_hist", 1, 30)
+    if event_optimized is not None:
+        joblib.dump(study, f'{event_optimized}_study.pkl')
+    else:
+        joblib.dump(study, 'study.pkl')
 
     print('cart_weight', cart_weight)
     print('order_weight', order_weight)
@@ -84,25 +91,32 @@ def objective(trial):
     reco = reco.groupby(
         'session').agg(pl.col('aid'))
 
-    print(reco)
-    score = f1_score(reco, fold, '../data/raw/', )
-    print(score)
+    try:
+        score = f1_score(reco, fold, '../data/raw/', )
+        print(score)
+    except:
+        score = -1
     gc.collect()
     return score
 
 
 if __name__ == '__main__':
     fold = 'valid2__'
-    event_optimized = 'orders'
-    study = optuna.create_study(direction="maximize")
-    # study = joblib.load(f'{event_optimized}_study.pkl')
-    study.enqueue_trial({'cart_weight': 6,
-                         'order_weight': 3,
-                         'days_back': 14,
-                         'after_time': 24,
-                         'right_types': '012',
-                         'time_weight_coef': 3,
-                         'normalize': True,
-                         'session_hist': 30})
-    study.optimize(objective, timeout=int(10.5*60*60))
-    joblib.dump(study, f'{event_optimized}_study.pkl')
+    event_optimized = None
+    study = joblib.load('study.pkl')
+    # study = optuna.create_study(direction="maximize")
+    # study.enqueue_trial({'cart_weight': 6,
+    #                      'order_weight': 3,
+    #                      'days_back': 14,
+    #                      'before_time': 0,
+    #                      'after_time': 24,
+    #                      'left_types': '012',
+    #                      'right_types': '012',
+    #                      'time_weight_coef': 3,
+    #                      'normalize': True,
+    #                      'session_hist': 30})
+    study.optimize(objective, timeout=int(15*60*60))
+    if event_optimized is not None:
+        joblib.dump(study, f'{event_optimized}_study.pkl')
+    else:
+        joblib.dump(study, 'study.pkl')
