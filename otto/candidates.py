@@ -101,6 +101,54 @@ def generate_candidates(fold, config):
         covisit2, on=['session', 'aid'], how='outer')
     del covisit2
 
+    covisit3 = CovisitMaster(fold=fold, name='civisit3', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[2], right_types=[2])
+    covisit3 = covisit3.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit3, on=['session', 'aid'], how='outer')
+    del covisit3
+
+    covisit4 = CovisitMaster(fold=fold, name='civisit4', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1], right_types=[0])
+    covisit4 = covisit4.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit4, on=['session', 'aid'], how='outer')
+    del covisit4
+
+    covisit5 = CovisitMaster(fold=fold, name='civisit5', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1], right_types=[1])
+    covisit5 = covisit5.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit5, on=['session', 'aid'], how='outer')
+    del covisit5
+
+    covisit6 = CovisitMaster(fold=fold, name='covisit6', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1, 2], right_types=[1, 2])
+    covisit6 = covisit6.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit6, on=['session', 'aid'], how='outer')
+    del covisit6
+
+    covisit7 = CovisitMaster(fold=fold, name='covisit7', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 17, 2: 42},
+                             days_back=7, before_time=4 * 60 * 60, after_time=24 * 60 * 60, left_types=[1], right_types=[1], time_weight_coef=0.15, session_hist=24)
+    covisit7 = covisit7.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit7, on=['session', 'aid'], how='outer')
+    del covisit7
+
+    tg_covisit1 = TimeGroupCovisitMaster(fold=fold, name='tg_covisit1', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                                         days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[0, 1, 2])
+    tg_covisit1 = tg_covisit1.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        tg_covisit1, on=['session', 'aid'], how='outer')
+    del tg_covisit1
+
     candidates = candidates.fill_null(999)
 
     cands_cols = candidates.columns
@@ -348,3 +396,227 @@ class Covisit(CandiadateGen):
 
         reco.write_parquet(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+
+
+class CovisitMaster(CandiadateGen):
+    def __init__(self, fold, name, data_path, max_cands, type_weight, days_back, before_time, after_time, left_types, right_types,
+                 time_weight_coef=3, normalize=True, session_hist=30, weekdays=None, dayparts=None):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.max_cands = max_cands
+        self.maxs = {'': 1662328791,
+                     'valid3__': 1661723998,
+                     'valid2__': 1661119195,
+                     'valid1__': 1660514389}
+
+        self.type_weight = type_weight
+        self.days_back = days_back
+        self.session_hist = session_hist
+        self.before_time = before_time  # positive number
+        self.after_time = after_time
+        self.normalize = normalize
+        self.time_weight_coef = time_weight_coef
+        self.left_types = left_types
+        self.right_types = right_types
+        self.weekdays = weekdays
+        self.dayparts = dayparts
+
+    def prepare_candidates(self, return_df=False):
+
+        max_ts = self.maxs[self.fold]
+        min_ts = max_ts - (24 * 60 * 60 * self.days_back)
+
+        df = pl.read_parquet(
+            f'../data/raw/{self.fold}test.parquet')
+        df1 = pl.read_parquet(
+            f'../data/raw/{self.fold}train.parquet')
+        df = pl.concat([df, df1])
+        del df1
+
+        df = df.filter(pl.col('ts') >= min_ts)
+
+        if self.weekdays is not None:
+            df = df.with_columns(
+                (pl.col('ts').cast(pl.Int64) *
+                 1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
+            df = df.filter(pl.col('weekday').is_in(
+                self.weekdays)).drop('weekday')
+
+        if self.dayparts is not None:
+            df = df.with_columns((
+                (((pl.col('ts').cast(pl.Int64) *
+                   1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
+            df = df.filter(pl.col('daypart').is_in(
+                self.dayparts)).drop('daypart')
+
+        df = df.sort(by=['session', 'ts'], reverse=[False, True])
+        df = df.with_column(
+            pl.col('session').cumcount().over('session').alias('n'))
+        df = df.filter(pl.col('n') < self.session_hist).drop('n')
+        df = df.join(df, on='session')
+        df = df.filter(((pl.col('ts_right') - pl.col('ts')) >= - self.before_time) & ((pl.col(
+            'ts_right') - pl.col('ts')) <= self.after_time) & (pl.col('aid') != pl.col('aid_right')))
+        df = df.filter(pl.col('type').is_in(self.left_types) &
+                       pl.col('type_right').is_in(self.right_types))
+        df = df.with_column(pl.col('type_right').apply(
+            lambda x: self.type_weight[x]).alias('wgt'))
+        df = df.with_column(pl.col('wgt') * (1 + self.time_weight_coef *
+                            ((pl.col('ts') - min_ts) / (max_ts - min_ts))))
+        df = df.select(['aid', 'aid_right', 'wgt'])
+        df = df.groupby(['aid', 'aid_right']).agg(pl.col('wgt').sum())
+        df = df.sort(by=['aid', 'wgt'], reverse=[False, True])
+        df = df.with_column(pl.col('aid').cumcount().over('aid').alias('n'))
+        if self.normalize:
+            aid_wgt_sum = df.groupby('aid').agg(
+                pl.col('wgt').sum().alias('wgt_sum'))
+            df = df.join(aid_wgt_sum, on='aid')
+            df = df.with_column(
+                pl.col('wgt') / pl.col('wgt_sum')).drop('wgt_sum')
+        df = df.filter(pl.col('n') < self.max_cands).drop('n')
+        reco = pl.read_parquet(
+            f'../data/raw/{self.fold}test.parquet')
+
+        if self.weekdays is not None:
+            reco = reco.with_columns(
+                (pl.col('ts').cast(pl.Int64) *
+                 1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
+            reco = reco.filter(pl.col('weekday').is_in(
+                self.weekdays)).drop('weekday')
+
+        if self.dayparts is not None:
+            reco = reco.with_columns((
+                (((pl.col('ts').cast(pl.Int64) *
+                   1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
+            reco = reco.filter(pl.col('daypart').is_in(
+                self.dayparts)).drop('daypart')
+        reco = reco.sort(by=['session', 'ts'], reverse=[False, True])
+        reco = reco.with_column(
+            pl.col('session').cumcount().over('session').alias('n'))
+        reco = reco.filter(pl.col('n') < self.session_hist).drop('n')
+        reco = reco.filter(pl.col('type').is_in(self.left_types))
+        reco = reco.join(df, on='aid')
+        reco = reco.groupby(['session', 'aid_right']).agg(pl.col('wgt').sum())
+        reco = reco.sort(by=['session', 'wgt'], reverse=[False, True])
+        reco = reco.with_column(
+            pl.col('session').cumcount().over('session').alias('rank'))
+        reco = reco.filter(pl.col('rank') < self.max_cands).drop('wgt')
+        reco.columns = ['session', 'aid', self.name]
+
+        if return_df:
+            return reco
+        else:
+            reco.write_parquet(
+                f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+
+
+class TimeGroupCovisitMaster(CandiadateGen):
+    def __init__(self, fold, name, data_path, max_cands, type_weight, days_back, before_time, after_time, left_types, right_types,
+                 time_weight_coef=3, normalize=True, session_hist=30):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.max_cands = max_cands
+        self.maxs = {'': 1662328791,
+                     'valid3__': 1661723998,
+                     'valid2__': 1661119195,
+                     'valid1__': 1660514389}
+
+        self.type_weight = type_weight
+        self.days_back = days_back
+        self.session_hist = session_hist
+        self.before_time = before_time  # positive number
+        self.after_time = after_time
+        self.normalize = normalize
+        self.time_weight_coef = time_weight_coef
+        self.left_types = left_types
+        self.right_types = right_types
+
+    def prepare_candidates(self, return_df=False):
+
+        max_ts = self.maxs[self.fold]
+        min_ts = max_ts - (24 * 60 * 60 * self.days_back)
+
+        df = pl.read_parquet(
+            f'../data/raw/{self.fold}test.parquet')
+        df1 = pl.read_parquet(
+            f'../data/raw/{self.fold}train.parquet')
+        df = pl.concat([df, df1])
+        del df1
+
+        df = df.filter(pl.col('ts') >= min_ts)
+
+        df = df.with_columns(
+            (pl.col('ts').cast(pl.Int64) *
+                1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
+
+        df = df.with_columns((
+            (((pl.col('ts').cast(pl.Int64) *
+               1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
+
+        df = df.with_column(
+            (pl.col('weekday') * 10 + pl.col('daypart')).alias('time_group'))
+
+        df = df.sort(by=['session', 'ts'], reverse=[False, True])
+        df = df.with_column(
+            pl.col('session').cumcount().over('session').alias('n'))
+        df = df.filter(pl.col('n') < self.session_hist).drop('n')
+        df = df.join(df, on='session')
+        df = df.filter(((pl.col('ts_right') - pl.col('ts')) >= - self.before_time) & ((pl.col(
+            'ts_right') - pl.col('ts')) <= self.after_time) & (pl.col('aid') != pl.col('aid_right')))
+        df = df.filter(pl.col('type').is_in(self.left_types) &
+                       pl.col('type_right').is_in(self.right_types))
+        df = df.filter(pl.col('time_group') <= pl.col('time_group_right'))
+        df = df.with_column(pl.col('type_right').apply(
+            lambda x: self.type_weight[x]).alias('wgt'))
+        df = df.with_column(pl.col('wgt') * (1 + self.time_weight_coef *
+                            ((pl.col('ts') - min_ts) / (max_ts - min_ts))))
+        df = df.select(['time_group', 'aid', 'aid_right', 'wgt'])
+        df = df.groupby(['time_group', 'aid', 'aid_right']
+                        ).agg(pl.col('wgt').sum())
+        df = df.sort(by=['time_group', 'aid', 'wgt'],
+                     reverse=[False, False, True])
+        df = df.with_column(pl.col(['time_group', 'aid']).cumcount().over(
+            ['time_group', 'aid']).alias('n'))
+        if self.normalize:
+            aid_wgt_sum = df.groupby(['time_group', 'aid']).agg(
+                pl.col('wgt').sum().alias('wgt_sum'))
+            df = df.join(aid_wgt_sum, on=['time_group', 'aid'])
+            df = df.with_column(
+                pl.col('wgt') / pl.col('wgt_sum')).drop('wgt_sum')
+        df = df.filter(pl.col('n') < self.max_cands).drop('n')
+        reco = pl.read_parquet(
+            f'../data/raw/{self.fold}test.parquet')
+
+        reco = reco.with_columns(
+            (pl.col('ts').cast(pl.Int64) *
+                1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
+
+        reco = reco.with_columns((
+            (((pl.col('ts').cast(pl.Int64) *
+               1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
+
+        reco = reco.with_column(
+            (pl.col('weekday') * 10 + pl.col('daypart')).alias('time_group'))
+        max_time_group = reco.select(['time_group', 'session']).groupby(
+            'session').agg(pl.col('time_group').max().alias('max_time_group'))
+        reco = reco.join(max_time_group, on='session', how='inner')
+        del max_time_group
+        reco = reco.sort(by=['session', 'ts'], reverse=[False, True])
+        reco = reco.with_column(
+            pl.col('session').cumcount().over('session').alias('n'))
+        reco = reco.filter(pl.col('n') < self.session_hist).drop('n')
+        reco = reco.filter(pl.col('type').is_in(self.left_types))
+        reco = reco.filter(pl.col('time_group') >= pl.col(
+            'max_time_group') - 1).drop('max_time_group')
+        reco = reco.join(df, on=['time_group', 'aid'])
+        reco = reco.groupby(['session', 'aid_right']).agg(pl.col('wgt').sum())
+        reco = reco.sort(by=['session', 'wgt'], reverse=[False, True])
+        reco = reco.with_column(
+            pl.col('session').cumcount().over('session').alias('rank'))
+        reco = reco.filter(pl.col('rank') < self.max_cands).drop('wgt')
+        reco.columns = ['session', 'aid', self.name]
+
+        if return_df:
+            return reco
+        else:
+            reco.write_parquet(
+                f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
