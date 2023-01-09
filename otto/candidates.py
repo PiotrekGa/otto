@@ -71,7 +71,7 @@ def generate_candidates(fold, config):
 
     w2v_window09 = W2VReco(
         fold, 'w2v_window09', config.data_path, '09', 30)
-    w2v_window09 = w2v_window09.load_candidates_file(max_rank=5)
+    w2v_window09 = w2v_window09.load_candidates_file(max_rank=10)
 
     candidates = candidates.join(
         w2v_window09, on=['session', 'aid'], how='outer')
@@ -79,7 +79,7 @@ def generate_candidates(fold, config):
 
     w2v_window01 = W2VReco(
         fold, 'w2v_window01', config.data_path, '01', 30)
-    w2v_window01 = w2v_window01.load_candidates_file(max_rank=5)
+    w2v_window01 = w2v_window01.load_candidates_file(max_rank=10)
 
     candidates = candidates.join(
         w2v_window01, on=['session', 'aid'], how='outer')
@@ -87,7 +87,7 @@ def generate_candidates(fold, config):
 
     w2v_window35 = W2VReco(
         fold, 'w2v_window35', config.data_path, '35', 30)
-    w2v_window35 = w2v_window35.load_candidates_file(max_rank=5)
+    w2v_window35 = w2v_window35.load_candidates_file(max_rank=10)
 
     candidates = candidates.join(
         w2v_window35, on=['session', 'aid'], how='outer')
