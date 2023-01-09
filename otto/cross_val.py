@@ -46,6 +46,13 @@ class CONFIG:
         'covisit6',
         'covisit7',
 
+        'covisit8',
+        'covisit9',
+        'covisit10',
+        'covisit11',
+        'covisit12',
+        'covisit13',
+
         'tg_covisit1',
 
         'session_interaction_cnt',
@@ -209,5 +216,5 @@ if __name__ == '__main__':
     print(scores)
     print(scores_perfect)
 
-# Scores: {'clicks': 0.5326283337782974, 'carts': 0.419418659082679, 'orders': 0.656965954230392, 'total': 0.5732680036408686}
-# Scores perfect: {'clicks': 0.6036451764359297, 'carts': 0.48770811068618014, 'orders': 0.6975699972660458, 'total': 0.6252189492090745}
+# Scores: {'clicks': 0.534062767553833, 'carts': 0.4203584140751274, 'orders': 0.6578440359595374, 'total': 0.5742202225536439}
+# Scores perfect: {'clicks': 0.6095187023006178, 'carts': 0.49414684554985383, 'orders': 0.7012495778453225, 'total': 0.6299456706022114}

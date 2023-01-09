@@ -141,6 +141,54 @@ def generate_candidates(fold, config):
         covisit7, on=['session', 'aid'], how='outer')
     del covisit7
 
+    covisit8 = CovisitMaster(fold=fold, name='covisit8', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[0, 1, 2], reco_hist=1)
+    covisit8 = covisit8.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit8, on=['session', 'aid'], how='outer')
+    del covisit8
+
+    covisit9 = CovisitMaster(fold=fold, name='covisit9', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[2], right_types=[2], reco_hist=1)
+    covisit9 = covisit9.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit9, on=['session', 'aid'], how='outer')
+    del covisit9
+
+    covisit10 = CovisitMaster(fold=fold, name='covisit10', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                              days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1], right_types=[0], reco_hist=1)
+    covisit10 = covisit10.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit10, on=['session', 'aid'], how='outer')
+    del covisit10
+
+    covisit11 = CovisitMaster(fold=fold, name='covisit11', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                              days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1], right_types=[1], reco_hist=1)
+    covisit11 = covisit11.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit11, on=['session', 'aid'], how='outer')
+    del covisit11
+
+    covisit12 = CovisitMaster(fold=fold, name='covisit12', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+                              days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1, 2], right_types=[1, 2], reco_hist=1)
+    covisit12 = covisit12.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit12, on=['session', 'aid'], how='outer')
+    del covisit12
+
+    covisit13 = CovisitMaster(fold=fold, name='covisit13', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 17, 2: 42},
+                              days_back=7, before_time=4 * 60 * 60, after_time=24 * 60 * 60, left_types=[1], right_types=[1], time_weight_coef=0.15, session_hist=24, reco_hist=1)
+    covisit13 = covisit13.load_candidates_file(max_rank=20)
+
+    candidates = candidates.join(
+        covisit13, on=['session', 'aid'], how='outer')
+    del covisit13
+
     tg_covisit1 = TimeGroupCovisitMaster(fold=fold, name='tg_covisit1', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
                                          days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[0, 1, 2])
     tg_covisit1 = tg_covisit1.load_candidates_file(max_rank=20)
@@ -246,11 +294,12 @@ class CandsFromSubmission(CandiadateGen):
 
 
 class W2VReco(CandiadateGen):
-    def __init__(self, fold, name, data_path, window_str, max_cands):
+    def __init__(self, fold, name, data_path, window_str, max_cands, use_event=0):
         super().__init__(fold=fold, name=name, data_path=data_path)
         self.fold = fold
         self.window_str = window_str
         self.max_cands = max_cands
+        self.use_event = use_event
 
     def prepare_candidates(self):
         df = pl.read_parquet(
@@ -258,7 +307,11 @@ class W2VReco(CandiadateGen):
         model = Word2Vec.load(
             f'{self.data_path}raw/word2vec_w{self.window_str}.model')
 
-        df = df.unique(subset=['session'], keep='last')
+        df = df.unique(subset=['session', 'aid', 'type'], keep='last')
+        df = df.with_column(pl.col('ts').cumcount(
+            reverse=True).over('session').alias('rank'))
+        df = df.filter(pl.col('rank') == self.use_event).drop('rank')
+
         df = df.with_column((pl.col('aid').cast(
             str) + pl.lit('_') + pl.col('type').cast(str)).alias('aid_str'))
         df = df.with_column(pl.col('type').cast(str)).collect()
@@ -303,17 +356,17 @@ class W2VReco(CandiadateGen):
         cands = cands.pivot(index=['aid_str', 'aid'],
                             columns='col_name', values='rank')
 
-        if f'w2v_{self.window_str}_clicks' not in cands.columns:
+        if f'{self.name}_clicks' not in cands.columns:
             cands = cands.with_column(pl.lit(None).cast(pl.Int64).alias(
-                f'w2v_{self.window_str}_clicks'))
+                f'{self.name}_clicks'))
 
-        if f'w2v_{self.window_str}_carts' not in cands.columns:
+        if f'{self.name}_carts' not in cands.columns:
             cands = cands.with_column(
-                pl.lit(None).cast(pl.Int64).alias(f'w2v_{self.window_str}_carts'))
+                pl.lit(None).cast(pl.Int64).alias(f'{self.name}_carts'))
 
-        if f'w2v_{self.window_str}_orders' not in cands.columns:
+        if f'{self.name}_orders' not in cands.columns:
             cands = cands.with_column(pl.lit(None).cast(pl.Int64).alias(
-                f'w2v_{self.window_str}_orders'))
+                f'{self.name}_orders'))
 
         columns = cands.columns
         columns.sort()
@@ -400,7 +453,7 @@ class Covisit(CandiadateGen):
 
 class CovisitMaster(CandiadateGen):
     def __init__(self, fold, name, data_path, max_cands, type_weight, days_back, before_time, after_time, left_types, right_types,
-                 time_weight_coef=3, normalize=True, session_hist=30, weekdays=None, dayparts=None):
+                 time_weight_coef=3, normalize=True, session_hist=30, weekdays=None, dayparts=None, reco_hist=30):
         super().__init__(fold=fold, name=name, data_path=data_path)
         self.fold = fold
         self.max_cands = max_cands
@@ -420,6 +473,7 @@ class CovisitMaster(CandiadateGen):
         self.right_types = right_types
         self.weekdays = weekdays
         self.dayparts = dayparts
+        self.reco_hist = reco_hist
 
     def prepare_candidates(self, return_df=False):
 
@@ -492,7 +546,7 @@ class CovisitMaster(CandiadateGen):
         reco = reco.sort(by=['session', 'ts'], reverse=[False, True])
         reco = reco.with_column(
             pl.col('session').cumcount().over('session').alias('n'))
-        reco = reco.filter(pl.col('n') < self.session_hist).drop('n')
+        reco = reco.filter(pl.col('n') < self.reco_hist).drop('n')
         reco = reco.filter(pl.col('type').is_in(self.left_types))
         reco = reco.join(df, on='aid')
         reco = reco.groupby(['session', 'aid_right']).agg(pl.col('wgt').sum())
