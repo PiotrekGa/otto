@@ -14,6 +14,7 @@ class CONFIG:
     data_path = '../data/'
     submission_name = 'submission'
     folds = [['valid2__', 'valid3__'], ['valid3__', '']]
+    # folds = [['valid3__', '']]
 
     sample_size = None
     max_negative_candidates = 20
@@ -53,14 +54,11 @@ class CONFIG:
         'covisit12',
         'covisit13',
 
-        'covisit14',
-        'covisit15',
-        'covisit16',
-        'covisit17',
-        'covisit18',
-        'covisit19',
-
         'tg_covisit1',
+
+        'recbole_clicks',
+        'recbole_carts',
+        'recbole_orders',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
@@ -127,7 +125,8 @@ class CONFIG:
     model_param = {'objective': 'lambdarank',
                    'lambdarank_truncation_level': 15,
                    'verbose': -1,
-                   'n_jobs': -1}
+                   'n_jobs': -1,
+                   'num_boost_round': 100}
 
 
 def main(config):
@@ -223,5 +222,5 @@ if __name__ == '__main__':
     print(scores)
     print(scores_perfect)
 
-# Scores: {'clicks': 0.5349534628945988, 'carts': 0.4214324197807827, 'orders': 0.6581528119522041, 'total': 0.5748167593950171}
-# Scores perfect: {'clicks': 0.627589230641761, 'carts': 0.5064219535245228, 'orders': 0.7077145751917788, 'total': 0.6393142542366002}
+# Scores: {'clicks': 0.537386764313267, 'carts': 0.42176451365029455, 'orders': 0.6584615879448706, 'total': 0.5753449832933375}
+# Scores perfect: {'clicks': 0.6356848917816669, 'carts': 0.510062620891884, 'orders': 0.7096540743957157, 'total': 0.6423797200831614}
