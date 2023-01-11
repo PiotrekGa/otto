@@ -37,22 +37,6 @@ def generate_candidates(fold, config):
         recbole_clicks, on=['session', 'aid'], how='outer')
     del recbole_clicks
 
-    recbole_carts = CandsFromSubmission(
-        fold=fold, event_type_str='carts', name='recbole_carts', data_path=config.data_path, base_file_name='recbole', reverse=False)
-    recbole_carts = recbole_carts.load_candidates_file()
-
-    candidates = candidates.join(
-        recbole_carts, on=['session', 'aid'], how='outer')
-    del recbole_carts
-
-    recbole_orders = CandsFromSubmission(
-        fold=fold, event_type_str='orders', name='recbole_orders', data_path=config.data_path, base_file_name='recbole', reverse=False)
-    recbole_orders = recbole_orders.load_candidates_file()
-
-    candidates = candidates.join(
-        recbole_orders, on=['session', 'aid'], how='outer')
-    del recbole_orders
-
     covisit1_clicks = CandsFromSubmission(
         fold=fold, event_type_str='clicks', name='covisit1_clicks', data_path=config.data_path, base_file_name='covisit1', reverse=False)
     covisit1_clicks = covisit1_clicks.load_candidates_file()

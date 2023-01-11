@@ -57,8 +57,6 @@ class CONFIG:
         'tg_covisit1',
 
         'recbole_clicks',
-        'recbole_carts',
-        'recbole_orders',
 
         'session_interaction_cnt',
         'session_interaction_last_time',
