@@ -297,6 +297,7 @@ class CandsFromSubmission(CandiadateGen):
         df = df.drop('one')
         df = df.select(
             [pl.col('session').cast(pl.Int32), pl.col('candidates').cast(pl.Int32).alias('aid'), pl.col(self.name).cast(pl.Int32)]).collect()
+        df = df.drop_nulls()
         df.write_parquet(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
 
