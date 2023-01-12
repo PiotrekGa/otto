@@ -37,6 +37,14 @@ def generate_candidates(fold, config):
         recbole_clicks, on=['session', 'aid'], how='outer')
     del recbole_clicks
 
+    recbole_clicks2 = CandsFromSubmission(
+        fold=fold, event_type_str='clicks', name='recbole_clicks2', data_path=config.data_path, base_file_name='recbole2', reverse=False)
+    recbole_clicks2 = recbole_clicks2.load_candidates_file()
+
+    candidates = candidates.join(
+        recbole_clicks2, on=['session', 'aid'], how='outer')
+    del recbole_clicks2
+
     covisit1_clicks = CandsFromSubmission(
         fold=fold, event_type_str='clicks', name='covisit1_clicks', data_path=config.data_path, base_file_name='covisit1', reverse=False)
     covisit1_clicks = covisit1_clicks.load_candidates_file()

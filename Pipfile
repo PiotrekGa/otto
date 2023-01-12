@@ -27,6 +27,8 @@ ipywidgets = "*"
 plotly = "*"
 implicit = "*"
 h5py = "*"
+recbole = "*"
+pydantic = "*"
 
 [dev-packages]
 torch-tb-profiler = "*"

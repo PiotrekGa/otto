@@ -14,7 +14,7 @@ class CONFIG:
     data_path = '../data/'
     submission_name = 'submission'
     # folds = [['valid2__', 'valid3__'], ['valid3__', '']]
-    folds = [['valid3__', '']]
+    folds = [['valid2__', 'valid3__']]
 
     sample_size = None
     max_negative_candidates = 20
@@ -57,6 +57,7 @@ class CONFIG:
         'tg_covisit1',
 
         'recbole_clicks',
+        'recbole_clicks2',
 
         'covisit_score1',
         'covisit_score2',
@@ -226,5 +227,5 @@ if __name__ == '__main__':
     print(scores)
     print(scores_perfect)
 
-# Scores: {'clicks': 0.5387101488635003, 'carts': 0.42255588627551427, 'orders': 0.6588089609366206, 'total': 0.5759231573309767}
-# Scores perfect: {'clicks': 0.6356848917816669, 'carts': 0.510062620891884, 'orders': 0.7096540743957157, 'total': 0.6423797200831614}
+# Scores: {'clicks': 0.5399454995719138, 'carts': 0.42350977292198444, 'orders': 0.658953699683183, 'total': 0.5764197016436965}
+# Scores perfect: {'clicks': 0.6431142575697596, 'carts': 0.5154326494201605, 'orders': 0.712667856740805, 'total': 0.6465419346275072}
