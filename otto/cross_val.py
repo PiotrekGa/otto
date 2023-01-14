@@ -13,8 +13,8 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    # folds = [['valid2__', 'valid3__'], ['valid3__', '']]
-    folds = [['valid2__', 'valid3__']]
+    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
+    # folds = [['valid2__', 'valid3__']]
 
     sample_size = None
     max_negative_candidates = 20
@@ -53,6 +53,14 @@ class CONFIG:
         'covisit11',
         'covisit12',
         'covisit13',
+
+        # THESE ADD 0.009 for perfect CV
+        # 'covisit14',
+        # 'covisit15',
+        # 'covisit16',
+        # 'covisit17',
+        # 'covisit18',
+        # 'covisit19',
 
         'tg_covisit1',
 
@@ -131,7 +139,8 @@ class CONFIG:
                    'lambdarank_truncation_level': 15,
                    'verbose': -1,
                    'n_jobs': -1,
-                   'num_boost_round': 100}
+                   'boosting_type': 'dart',
+                   'num_boost_round': 500}
 
 
 def main(config):
@@ -227,5 +236,5 @@ if __name__ == '__main__':
     print(scores)
     print(scores_perfect)
 
-# Scores: {'clicks': 0.5399454995719138, 'carts': 0.42350977292198444, 'orders': 0.658953699683183, 'total': 0.5764197016436965}
-# Scores perfect: {'clicks': 0.6431142575697596, 'carts': 0.5154326494201605, 'orders': 0.712667856740805, 'total': 0.6465419346275072}
+# Scores: {'clicks': 0.5417240133305101, 'carts': 0.42419869105554625, 'orders': 0.6592045801772246, 'total': 0.5769547567560496}
+# Scores perfect: {'clicks': 0.6575230383988658, 'carts': 0.5254007648757739, 'orders': 0.7179170486161368, 'total': 0.6541227624723008}
