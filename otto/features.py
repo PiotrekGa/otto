@@ -4,7 +4,7 @@ from pathlib import Path
 
 def add_labels(candidates, fold, config):
     labels = pl.read_parquet(
-        f'{config.data_path}raw/{fold}test_labels.parquet')
+        f'{config.data_path}{fold}test_labels.parquet')
     labels = labels.with_column(pl.lit(1).alias('one'))
     labels = labels.pivot(values='one', columns='type',
                           index=['session', 'aid'])
@@ -137,10 +137,10 @@ class Feature():
 
     def load_feature_file(self):
         feature_file = Path(
-            f'{self.data_path}features/{self.fold}{self.name}.parquet')
-        if not feature_file.is_file():
-            print(f'preparing features {self.fold}{self.name}')
-            self.prepare_features()
+            f'{self.data_path}{self.fold}{self.name}.parquet')
+        #if not feature_file.is_file():
+        print(f'preparing features {self.fold}{self.name}')
+        self.prepare_features()
         return pl.read_parquet(feature_file.as_posix()).lazy()
 
 
@@ -157,7 +157,7 @@ class LastInteraction(Feature):
 
     def prepare_features(self):
         df = pl.read_parquet(
-            f'{self.data_path}raw/{self.fold}test.parquet').lazy()
+            f'{self.data_path}{self.fold}test.parquet').lazy()
         session_ts_max = df.groupby('session').agg(
             pl.col('ts').max().alias('ts_max'))
         if self.event_type:
@@ -186,7 +186,7 @@ class LastInteraction(Feature):
         df = df.collect()
 
         df.write_parquet(
-            f'{self.data_path}features/{self.fold}{self.name}.parquet')
+            f'{self.data_path}{self.fold}{self.name}.parquet')
 
     def fill_null(self, df):
         df = df.with_column(
@@ -208,51 +208,153 @@ class AidFeatures(Feature):
 
     def prepare_features(self):
         df = pl.read_parquet(
-            f'{self.data_path}raw/{self.fold}test.parquet')
+            f'{self.data_path}{self.fold}test.parquet')
         df2 = pl.read_parquet(
-            f'{self.data_path}raw/{self.fold}train.parquet')
+            f'{self.data_path}{self.fold}train.parquet')
         max_train_ts = df2.select(pl.col('ts').max().alias('max'))[0, 0]
         df2 = df2.filter(pl.col('ts') > (max_train_ts - (3600 * 24 * 7)))
         df = pl.concat([df, df2])
         del df2, max_train_ts
         ts_max = df.select(pl.col('ts').max())[0, 0]
         ts_min = df.select(pl.col('ts').min())[0, 0]
-
+        ts_mean = df.select(pl.col('ts').mean())[0, 0]
+        
         aid_stats = df.groupby('aid').agg([
             pl.col('ts').max().alias('aid_max_ts'),
             pl.col('ts').min().alias('aid_min_ts'),
+            pl.col('ts').mean().alias('aid_mean_ts'),
+            pl.col('ts').last().alias('aid_last_ts'),
+            pl.col('ts').first().alias('aid_first_ts'),
+            pl.col('ts').quantile(0.25, "nearest").alias('aid_quantile025_ts'),
+            pl.col('ts').quantile(0.75, "nearest").alias('aid_quantile075_ts'),
+            pl.col('ts').median().alias('aid_median_ts'),
+            pl.col('ts').std().alias('aid_std_ts'),
+            
+            pl.col('ts').drop_nulls().diff().abs().max().suffix("aid_abs_max_diff"),
+            pl.col('ts').drop_nulls().diff().abs().min().suffix("aid_abs_min_diff"),
+            pl.col('ts').drop_nulls().diff().abs().mean().suffix("aid_abs_mean_diff"),
+            pl.col('ts').drop_nulls().diff().abs().median().suffix("aid_abs_median_diff"),
+            pl.col('ts').drop_nulls().diff().abs().sum().suffix("aid_abs_sum_diff"),
+            pl.col('ts').drop_nulls().diff().pow(2).sum().sqrt().suffix("aid_std_diff"),
+            pl.col('ts').drop_nulls().diff(2).pow(2).sum().sqrt().suffix("aid_std_diff2"),
+            pl.col('ts').drop_nulls().diff(3).pow(2).sum().sqrt().suffix("aid_std_diff3"),
+            
+            pl.col('ts').diff().last().suffix("aid_last_diff"),
+            pl.col('ts').diff(3).last().suffix("aid_last_diff3"),
+            pl.col('ts').diff(4).last().suffix("aid_last_diff4"),
+            pl.col('ts').diff(7).last().suffix("aid_last_diff7"),
+
+            
             pl.col('session').count().alias('aid_cnt'),
-            pl.col('session').n_unique().alias('aid_sess_cnt')])
+            pl.col('session').n_unique().alias('aid_sess_cnt'),
+            
+        ])
         aid_stats = aid_stats.with_column(ts_max - pl.col('aid_max_ts'))
         aid_stats = aid_stats.with_column(pl.col('aid_min_ts') - ts_min)
 
+        
         aid_click_stats = df.filter(pl.col('type') == 0).groupby('aid').agg([
             pl.col('ts').max().alias('aid_click_max_ts'),
             pl.col('ts').min().alias('aid_click_min_ts'),
+            pl.col('ts').mean().alias('aid_click_mean_ts'),
+            pl.col('ts').last().alias('aid_click_last_ts'),
+            pl.col('ts').first().alias('aid_click_first_ts'),
+            pl.col('ts').quantile(0.25, "nearest").alias('aid_click_quantile025_ts'),
+            pl.col('ts').quantile(0.75, "nearest").alias('aid_click_quantile075_ts'),
+            pl.col('ts').median().alias('aid_click_median_ts'),            
+            pl.col('ts').std().alias('aid_click_std_ts'),  
+            
+            pl.col('ts').drop_nulls().diff().abs().max().suffix("aid_click_abs_max_diff"),
+            pl.col('ts').drop_nulls().diff().abs().min().suffix("aid_click_abs_min_diff"),
+            pl.col('ts').drop_nulls().diff().abs().mean().suffix("aid_click_abs_mean_diff"),
+            pl.col('ts').drop_nulls().diff().abs().median().suffix("aid_click_abs_median_diff"),
+            pl.col('ts').drop_nulls().diff().abs().sum().suffix("aid_click_abs_sum_diff"),
+            pl.col('ts').drop_nulls().diff().pow(2).sum().sqrt().suffix("aid_click_std_diff"),
+            pl.col('ts').drop_nulls().diff(2).pow(2).sum().sqrt().suffix("aid_click_std_diff2"),
+            pl.col('ts').drop_nulls().diff(3).pow(2).sum().sqrt().suffix("aid_click_std_diff3"),
+            
+            pl.col('ts').diff().last().suffix("aid_click_last_diff"),
+            pl.col('ts').diff(3).last().suffix("aid_click_last_diff3"),
+            pl.col('ts').diff(4).last().suffix("aid_click_last_diff4"),
+            pl.col('ts').diff(7).last().suffix("aid_click_last_diff7"),
+            
+            
             pl.col('session').count().alias('aid_click_cnt'),
-            pl.col('session').n_unique().alias('aid_sess_click_cnt')])
+            pl.col('session').n_unique().alias('aid_sess_click_cnt'),
+            
+            
+            
+        ])
         aid_click_stats = aid_click_stats.with_column(
-            (pl.col('aid_click_max_ts') - ts_max).abs())
+            ts_max - pl.col('aid_click_max_ts'))
         aid_click_stats = aid_click_stats.with_column(
             pl.col('aid_click_min_ts') - ts_min)
 
+        
         aid_cart_stats = df.filter(pl.col('type') == 1).groupby('aid').agg([
             pl.col('ts').max().alias('aid_cart_max_ts'),
             pl.col('ts').min().alias('aid_cart_min_ts'),
+            pl.col('ts').mean().alias('aid_cart_mean_ts'),
+            pl.col('ts').last().alias('aid_cart_last_ts'),
+            pl.col('ts').first().alias('aid_cart_first_ts'),
+            pl.col('ts').quantile(0.25, "nearest").alias('aid_cart_quantile025_ts'),
+            pl.col('ts').quantile(0.75, "nearest").alias('aid_cart_quantile075_ts'),
+            pl.col('ts').median().alias('aid_cart_median_ts'),               
+            pl.col('ts').std().alias('aid_cart_std_ts'),    
             pl.col('session').count().alias('aid_cart_cnt'),
-            pl.col('session').n_unique().alias('aid_sess_cart_cnt')])
+            pl.col('session').n_unique().alias('aid_sess_cart_cnt'),
+            
+            pl.col('ts').drop_nulls().diff().abs().max().suffix("aid_cart_abs_max_diff"),
+            pl.col('ts').drop_nulls().diff().abs().min().suffix("aid_cart_abs_min_diff"),
+            pl.col('ts').drop_nulls().diff().abs().mean().suffix("aid_cart_abs_mean_diff"),
+            pl.col('ts').drop_nulls().diff().abs().median().suffix("aid_cart_abs_median_diff"),
+            pl.col('ts').drop_nulls().diff().abs().sum().suffix("aid_cart_abs_sum_diff"),
+            pl.col('ts').drop_nulls().diff().pow(2).sum().sqrt().suffix("aid_cart_std_diff"),
+            pl.col('ts').drop_nulls().diff(2).pow(2).sum().sqrt().suffix("aid_cart_std_diff2"),
+            pl.col('ts').drop_nulls().diff(3).pow(2).sum().sqrt().suffix("aid_cart_std_diff3"),
+            
+            pl.col('ts').diff().last().suffix("aid_cart_last_diff"),
+            pl.col('ts').diff(3).last().suffix("aid_cart_last_diff3"),
+            pl.col('ts').diff(4).last().suffix("aid_cart_last_diff4"),
+            pl.col('ts').diff(7).last().suffix("aid_cart_last_diff7"),        
+        
+        
+        
+        ])
         aid_cart_stats = aid_cart_stats.with_column(
-            (pl.col('aid_cart_max_ts') - ts_max).abs())
+            ts_max - pl.col('aid_cart_max_ts'))
         aid_cart_stats = aid_cart_stats.with_column(
             pl.col('aid_cart_min_ts') - ts_min)
 
         aid_order_stats = df.filter(pl.col('type') == 2).groupby('aid').agg([
             pl.col('ts').max().alias('aid_order_max_ts'),
             pl.col('ts').min().alias('aid_order_min_ts'),
+            pl.col('ts').mean().alias('aid_order_mean_ts'),
+            pl.col('ts').last().alias('aid_order_last_ts'),
+            pl.col('ts').first().alias('aid_order_first_ts'),
+            pl.col('ts').quantile(0.25, "nearest").alias('aid_order_quantile025_ts'),
+            pl.col('ts').quantile(0.75, "nearest").alias('aid_order_quantile075_ts'),
+            pl.col('ts').median().alias('aid_order_median_ts'),                    
+            pl.col('ts').std().alias('aid_order_std_ts'), 
             pl.col('session').count().alias('aid_order_cnt'),
-            pl.col('session').n_unique().alias('aid_sess_order_cnt')])
+            pl.col('session').n_unique().alias('aid_sess_order_cnt'),
+            pl.col('ts').drop_nulls().diff().abs().max().suffix("aid_order_abs_max_diff"),
+            pl.col('ts').drop_nulls().diff().abs().min().suffix("aid_order_abs_min_diff"),
+            pl.col('ts').drop_nulls().diff().abs().mean().suffix("aid_order_abs_mean_diff"),
+            pl.col('ts').drop_nulls().diff().abs().median().suffix("aid_order_abs_median_diff"),
+            pl.col('ts').drop_nulls().diff().abs().sum().suffix("aid_order_abs_sum_diff"),
+            pl.col('ts').drop_nulls().diff().pow(2).sum().sqrt().suffix("aid_order_std_diff"),
+            pl.col('ts').drop_nulls().diff(2).pow(2).sum().sqrt().suffix("aid_order_std_diff2"),
+            pl.col('ts').drop_nulls().diff(3).pow(2).sum().sqrt().suffix("aid_order_std_diff3"),
+            
+            pl.col('ts').diff().last().suffix("aid_order_last_diff"),
+            pl.col('ts').diff(3).last().suffix("aid_order_last_diff3"),
+            pl.col('ts').diff(4).last().suffix("aid_order_last_diff4"),
+            pl.col('ts').diff(7).last().suffix("aid_order_last_diff7"),        
+        
+        ])
         aid_order_stats = aid_order_stats.with_column(
-            (pl.col('aid_order_max_ts') - ts_max).abs())
+            ts_max - pl.col('aid_order_max_ts'))
         aid_order_stats = aid_order_stats.with_column(
             pl.col('aid_order_min_ts') - ts_min)
 
@@ -261,7 +363,11 @@ class AidFeatures(Feature):
         aid_stats = aid_stats.join(aid_order_stats, on='aid', how='left')
 
         aid_stats = aid_stats.with_columns(
-            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_click_max_ts', 'aid_click_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
+            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_mean_ts', 'aid_last_ts', 'aid_first_ts', 'aid_quantile025_ts', 'aid_quantile075_ts', 'aid_median_ts', 'aid_std_ts'
+					'aid_click_max_ts', 'aid_click_min_ts', 'aid_click_mean_ts', 'aid_click_last_ts', 'aid_click_first_ts', 'aid_click_quantile025_ts', 'aid_click_quantile075_ts', 'aid_click_median_ts','aid_click_std_ts',
+					'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_cart_mean_ts', 'aid_cart_last_ts', 'aid_cart_first_ts', 'aid_cart_quantile025_ts', 'aid_cart_quantile075_ts', 'aid_cart_median_ts','aid_cart_std_ts',
+					'aid_order_max_ts', 'aid_order_min_ts', 'aid_order_mean_ts', 'aid_order_last_ts', 'aid_order_first_ts', 'aid_order_quantile025_ts', 'aid_order_quantile075_ts', 'aid_order_median_ts','aid_order_std_ts',
+					]).fill_null(999999))
         aid_stats = aid_stats.with_columns(
             pl.col(['aid_cnt', 'aid_click_cnt', 'aid_cart_cnt', 'aid_order_cnt', 'aid_sess_cnt', 'aid_sess_click_cnt', 'aid_sess_cart_cnt', 'aid_sess_order_cnt']).fill_null(0))
 
@@ -273,7 +379,7 @@ class AidFeatures(Feature):
             (pl.col('aid_order_cnt') / pl.col('aid_cart_cnt')).alias('cart_to_order'))
 
         aid_stats.write_parquet(
-            f'{self.data_path}features/{self.fold}{self.name}.parquet')
+            f'{self.data_path}{self.fold}{self.name}.parquet')
 
     def fill_null(self, df):
         df = df.with_columns(
@@ -298,7 +404,7 @@ class SessionFeatures(Feature):
 
     def prepare_features(self):
         df = pl.read_parquet(
-            f'{self.data_path}raw/{self.fold}test.parquet')
+            f'{self.data_path}{self.fold}test.parquet')
         if self.event_type:
             df = df.filter(pl.col('type') == self.event_type)
         aid_cnt = df.groupby('aid').agg(
@@ -314,7 +420,7 @@ class SessionFeatures(Feature):
             f'{self.event_type_str}_cnt_distinct')).alias(f'{self.event_type_str}_events_per_aid'))
 
         df.write_parquet(
-            f'{self.data_path}features/{self.fold}{self.name}.parquet')
+            f'{self.data_path}{self.fold}{self.name}.parquet')
 
     def fill_null(self, df):
         df = df.with_columns(
