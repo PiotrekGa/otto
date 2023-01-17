@@ -1,5 +1,12 @@
 import polars as pl
 from pathlib import Path
+from implicit.nearest_neighbours import bm25_weight
+from implicit.bpr import BayesianPersonalizedRanking
+import time
+import numpy as np
+import scipy
+import joblib
+from tqdm import tqdm
 
 
 def add_labels(candidates, fold, config):
@@ -24,6 +31,21 @@ def add_featues(candidates, fold, config):
     feats = feats_obj.load_feature_file()
     feats = candidates.join(feats, on=['session', 'aid'], how='left')
     feats = feats_obj.fill_null(feats)
+
+#     bprf = BPRFeatures(fold='valid3__', name='bpr_score', data_path='../data/', cart_weight=2, order_weight=3, agg_func='max', iterations=100,
+# days_of_train=7, learning_rate=.25, regularization=.0004, use_okapi=True, okapi_K1=2.7, okapi_B=.06, factors=512)
+
+#     batch = 0
+#     batch_size = 10_000_000
+#     while batch * batch_size < feats.shape[0]:
+#         feats_batch = feats[batch * batch_size: (batch + 1) * batch_size]
+#         bpr_feat = bprf.prepare_features(feats_batch)
+#         batch += 1
+#     del feats_batch
+
+#     feats = feats.join(bpr_feat, how='left', on=['session', 'aid'])
+#     feats = bprf.fill_null(feats)
+#     del bpr_feat, bprf
 
     session_click_feats_obj = LastInteraction(
         fold, 'session_clicks_feats', config.data_path, 0)
@@ -483,3 +505,188 @@ class CovisitScore(Feature):
         df = df.with_columns(
             pl.col([self.name]).fill_null(0))
         return df
+
+
+class BPRFeatures(Feature):
+
+    def __init__(self, fold, name, data_path, cart_weight, order_weight, agg_func, iterations=100, learning_rate=0.25, regularization=.0005, use_okapi=True, okapi_K1=2.7, okapi_B=.06, days_of_train=7, factors=512, add_train=True):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.data_path = data_path
+        self.add_train = add_train
+        self.factors = factors
+        self.iterations = iterations
+        self.days_of_train = days_of_train
+        self.maxs = {'': 1661723999,
+                     'valid3__': 1661119199,
+                     'valid2__': 1660514399,
+                     'valid1__': 1659909599}
+        self.max_ts = self.maxs[self.fold]
+        self.min_ts = self.max_ts - (24 * 60 * 60 * self.days_of_train)
+
+        self.cart_weight = cart_weight
+        self.order_weight = order_weight
+        self.mapper = {0: 1, 1: self.cart_weight, 2: self.order_weight}
+
+        self.agg_func = agg_func
+        self.learning_rate = learning_rate
+        self.regularization = regularization
+        self.use_okapi = use_okapi
+        self.okapi_K1 = okapi_K1
+        self.okapi_B = okapi_B
+
+    def fill_null(self, df):
+        df = df.with_columns(
+            pl.col(self.name).fill_null(-9))
+
+    def load_feature_file(self):
+        raise (ValueError('use prepare_features method'))
+
+    def prepare_features(self, candidates):
+        candidates = candidates.select(['session', 'aid'])
+        model_file = Path(
+            f'{self.data_path}features/{self.fold}{self.name}_model.pkl')
+        if not model_file.is_file():
+            print(f'training {self.fold}{self.name}_model')
+            self.train_model()
+
+        feature_file = Path(
+            f'{self.data_path}features/{self.fold}{self.name}.parquet')
+        if feature_file.is_file():
+            feat = pl.read_parquet(feature_file.as_posix())
+            cands_to_score = candidates.join(
+                feat, on=['session', 'aid'], how='left')
+            cands_to_score = cands_to_score.filter(pl.col(self.name).is_null())
+        else:
+            cands_to_score = candidates
+
+        session_inv = pl.read_parquet(
+            f'{self.data_path}features/{self.fold}{self.name}_session_inv.parquet')
+        aid_inv = pl.read_parquet(
+            f'{self.data_path}features/{self.fold}{self.name}_aid_inv.parquet')
+
+        cands_to_score = cands_to_score.join(session_inv, on='session')
+        cands_to_score = cands_to_score.join(aid_inv, on='aid')
+
+        if cands_to_score.shape[0] == 0:
+            return feat
+        else:
+            cands_to_score = cands_to_score.drop(['session_idx', 'aid_idx'])
+
+            model = joblib.load(
+                f'{self.data_path}features/{self.fold}{self.name}_model.pkl')
+
+            session_inv = session_inv.sort(by='session_idx')
+            session_idx = session_inv.select('session').to_numpy().ravel()
+
+            aid_inv = aid_inv.sort(by='aid_idx')
+            aid_idx = aid_inv.select('aid').to_numpy().ravel()
+
+            del session_inv, aid_inv
+
+            users_dict = {sess: model.user_factors[i].reshape(
+                1, -1) for i, sess in enumerate(session_idx)}
+            aids_dict = {aid: model.item_factors[i].reshape(
+                1, -1) for i, aid in enumerate(aid_idx)}
+            del model
+
+            sessions = []
+            aids = []
+            user_vec = []
+            item_vec = []
+            cands_to_score = cands_to_score.to_numpy()
+            for i in tqdm(cands_to_score):
+                sessions.append(i[0])
+                aids.append(i[1])
+                user_vec.append(users_dict[i[0]])
+                item_vec.append(aids_dict[i[1]])
+            print('stacking')
+            user_vec = np.vstack(user_vec)
+            item_vec = np.vstack(item_vec)
+            print('scoring')
+            distances = (user_vec * item_vec).sum(1) / np.sqrt((user_vec *
+                                                                user_vec).sum(1)) + np.sqrt((item_vec * item_vec).sum(1))
+            distances = distances.tolist()
+
+            feat_new = pl.DataFrame([sessions, aids, distances], columns=[
+                                    'session', 'aid', self.name])
+            feat_new = feat_new.select([pl.col(['session', 'aid']).cast(
+                pl.Int32), pl.col(self.name).cast(pl.Float32)])
+
+            if feature_file.is_file():
+                feat = pl.concat([feat, feat_new])
+                feat.write_parquet(
+                    f'{self.data_path}features/{self.fold}{self.name}.parquet')
+                return feat
+            else:
+                feat_new.write_parquet(
+                    f'{self.data_path}features/{self.fold}{self.name}.parquet')
+                return feat_new
+
+    def train_model(self):
+
+        start_time = time.time()
+        if self.add_train:
+            df1 = pl.read_parquet(
+                f'{self.data_path}raw/{self.fold}test.parquet')
+            df2 = pl.read_parquet(
+                f'{self.data_path}raw/{self.fold}train.parquet')
+            df1 = df1.with_column(pl.lit(1, pl.Int8).alias('test'))
+            df2 = df2.with_column(pl.lit(0, pl.Int8).alias('test'))
+            df = pl.concat([df1, df2], how='vertical')
+            del df1, df2
+        else:
+            df = pl.read_parquet(
+                f'{self.data_path}raw/{self.fold}test.parquet')
+            df = df.with_column(pl.lit(1, pl.Int8).alias('test'))
+
+        df = df.filter(pl.col('ts') >= self.min_ts)
+
+        df = df.drop('ts')
+        df = df.with_column(pl.col('type').apply(lambda x: self.mapper[x]))
+
+        if self.agg_func == 'sum':
+            df = df.groupby(['session', 'aid', 'test']).sum()
+        elif self.agg_func == 'max':
+            df = df.groupby(['session', 'aid', 'test']).max()
+
+        aid_cnt = df.groupby('aid').agg(
+            pl.col('session').n_unique().alias('cnt'))
+        aid_cnt = aid_cnt.filter(pl.col('cnt') >= 0)
+        df = df.join(aid_cnt, on='aid').drop('cnt')
+        del aid_cnt
+        df = df.with_column(
+            (pl.col('session').rank('dense') - 1).alias('session_idx'))
+        df = df.with_column((pl.col('aid').rank('dense') - 1).alias('aid_idx'))
+        values = df.select(pl.col('type')).to_numpy().ravel()
+        session_idx = df.select(pl.col('session_idx')).to_numpy().ravel()
+        aid_idx = df.select(pl.col('aid_idx')).to_numpy().ravel()
+        aid_session = scipy.sparse.coo_matrix((values, (aid_idx, session_idx)), shape=(np.unique(aid_idx).shape[0],
+                                                                                       np.unique(session_idx).shape[0]))
+        session_idx = np.unique(session_idx)
+        aid_session = aid_session.tocsr()
+
+        start_time = time.time()
+        if self.use_okapi:
+            aid_session = bm25_weight(
+                aid_session, K1=self.okapi_K1, B=self.okapi_B)
+        session_aid = aid_session.T.tocsr()
+        model = BayesianPersonalizedRanking(factors=self.factors,
+                                            learning_rate=self.learning_rate,
+                                            regularization=self.regularization,
+                                            iterations=self.iterations)
+
+        model.fit(session_aid, show_progress=False)
+        joblib.dump(
+            model, f'{self.data_path}features/{self.fold}{self.name}_model.pkl')
+
+        session_inv = df.select(pl.col(['session', 'session_idx'])).unique()
+        aid_inv = df.select(pl.col(['aid', 'aid_idx'])).unique()
+
+        session_inv = session_inv.select(pl.col('*').cast(pl.Int32))
+        aid_inv = aid_inv.select(pl.col('*').cast(pl.Int32))
+
+        session_inv.write_parquet(
+            f'{self.data_path}features/{self.fold}{self.name}_session_inv.parquet')
+        aid_inv.write_parquet(
+            f'{self.data_path}features/{self.fold}{self.name}_aid_inv.parquet')

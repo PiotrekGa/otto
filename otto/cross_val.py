@@ -13,8 +13,8 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
-    # folds = [['valid2__', 'valid3__']]
+    # folds = [['valid2__', 'valid3__'], ['valid3__', '']]
+    folds = [['valid2__', 'valid3__']]
 
     sample_size = None
     max_negative_candidates = 20
@@ -66,6 +66,14 @@ class CONFIG:
 
         'recbole_clicks',
         'recbole_clicks2',
+
+        'cleora_emde',
+
+        # 'ses2ses3',
+        # 'ses2ses4',
+        # 'ses2ses5',
+
+        # 'bpr_score',
 
         'covisit_score1',
         'covisit_score2',
@@ -236,5 +244,5 @@ if __name__ == '__main__':
     print(scores)
     print(scores_perfect)
 
-# Scores: {'clicks': 0.5417240133305101, 'carts': 0.42419869105554625, 'orders': 0.6592045801772246, 'total': 0.5769547567560496}
-# Scores perfect: {'clicks': 0.6575230383988658, 'carts': 0.5254007648757739, 'orders': 0.7179170486161368, 'total': 0.6541227624723008}
+# Scores: {'clicks': 0.54176313948243, 'carts': 0.42397258459119774, 'orders': 0.6596227143339606, 'total': 0.5771417179259787}
+# Scores perfect: {'clicks': 0.6614316258987507, 'carts': 0.5287217035708923, 'orders': 0.7197021598237404, 'total': 0.656580969555387}

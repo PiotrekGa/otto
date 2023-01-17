@@ -29,6 +29,48 @@ def generate_candidates(fold, config):
     candidates = candidates.pivot(
         values='rank', index=['session', 'aid'], columns='name')
 
+#     w2v = W2VMaster(fold='valid2__', name='w2v_cands', data_path='../data/', max_cands=30, session_hist=10)
+#     w2v = w2v.load_candidates_file()
+
+#     candidates = candidates.join(
+#         w2v, on=['session', 'aid'], how='outer')
+#     del w2v
+
+#     ses2ses1 = Session2Session(fold=fold, name='ses2ses1', data_path='../data/', max_cands=30, type_weight={0:1, 1:6, 2:3}, days_back=7, types=[0, 1, 2], session_hist=30)
+#     ses2ses1 = ses2ses1.load_candidates_file(max_rank=30)
+
+#     candidates = candidates.join(
+#         ses2ses1, on=['session', 'aid'], how='outer')
+#     del ses2ses1
+
+#     ses2ses2 = Session2Session(fold=fold, name='ses2ses2', data_path='../data/', max_cands=30, type_weight={0:1, 1:6, 2:3}, days_back=7, types=[0], session_hist=30)
+#     ses2ses2 = ses2ses2.load_candidates_file(max_rank=30)
+
+    # candidates = candidates.join(
+    #     ses2ses2, on=['session', 'aid'], how='outer')
+    # del ses2ses2
+
+#     ses2ses3 = Session2Session(fold=fold, name='ses2ses3', data_path='../data/', max_cands=30, type_weight={0:1, 1:6, 2:3}, days_back=7, types=[1], session_hist=30)
+#     ses2ses3 = ses2ses3.load_candidates_file(max_rank=30)
+
+#     candidates = candidates.join(
+#         ses2ses3, on=['session', 'aid'], how='outer')
+#     del ses2ses3
+
+#     ses2ses4 = Session2Session(fold=fold, name='ses2ses4', data_path='../data/', max_cands=30, type_weight={0:1, 1:6, 2:3}, days_back=7, types=[2], session_hist=30)
+#     ses2ses4 = ses2ses4.load_candidates_file(max_rank=30)
+
+#     candidates = candidates.join(
+#         ses2ses4, on=['session', 'aid'], how='outer')
+#     del ses2ses4
+
+#     ses2ses5 = Session2Session(fold=fold, name='ses2ses5', data_path='../data/', max_cands=30, type_weight={0:1, 1:6, 2:3}, days_back=7, types=[1, 2], session_hist=30)
+#     ses2ses5 = ses2ses5.load_candidates_file(max_rank=30)
+
+#     candidates = candidates.join(
+#         ses2ses5, on=['session', 'aid'], how='outer')
+#     del ses2ses5
+
     recbole_clicks = CandsFromSubmission(
         fold=fold, event_type_str='clicks', name='recbole_clicks', data_path=config.data_path, base_file_name='recbole', reverse=False)
     recbole_clicks = recbole_clicks.load_candidates_file()
@@ -205,6 +247,56 @@ def generate_candidates(fold, config):
         covisit13, on=['session', 'aid'], how='outer')
     del covisit13
 
+
+# THESE ADD 0.009 for perfect CV
+#     covisit14 = CovisitMaster(fold=fold, name='covisit14', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+#                              days_back=14, before_time=-24 * 60 * 60, after_time= 7 * 24 * 60 * 60, left_types=[0, 1, 2], right_types=[0, 1, 2], reco_hist=1)
+#     covisit14 = covisit14.load_candidates_file(max_rank=20)
+
+#     candidates = candidates.join(
+#         covisit14, on=['session', 'aid'], how='outer')
+#     del covisit14
+
+#     covisit15 = CovisitMaster(fold=fold, name='covisit15', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+#                              days_back=14, before_time=-24 * 60 * 60, after_time= 7 * 24 * 60 * 60, left_types=[2], right_types=[2], reco_hist=1)
+#     covisit15 = covisit15.load_candidates_file(max_rank=20)
+
+#     candidates = candidates.join(
+#         covisit15, on=['session', 'aid'], how='outer')
+#     del covisit15
+
+#     covisit16 = CovisitMaster(fold=fold, name='covisit16', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+#                               days_back=14, before_time=-24 * 60 * 60, after_time= 7 * 24 * 60 * 60, left_types=[1], right_types=[0], reco_hist=1)
+#     covisit16 = covisit16.load_candidates_file(max_rank=20)
+
+#     candidates = candidates.join(
+#         covisit16, on=['session', 'aid'], how='outer')
+#     del covisit16
+
+#     covisit17 = CovisitMaster(fold=fold, name='covisit17', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+#                               days_back=14, before_time=-24 * 60 * 60, after_time= 7 * 24 * 60 * 60, left_types=[1], right_types=[1], reco_hist=1)
+#     covisit17 = covisit17.load_candidates_file(max_rank=20)
+
+#     candidates = candidates.join(
+#         covisit17, on=['session', 'aid'], how='outer')
+#     del covisit17
+
+#     covisit18 = CovisitMaster(fold=fold, name='covisit18', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
+#                               days_back=14, before_time=-24 * 60 * 60, after_time= 7 * 24 * 60 * 60, left_types=[1, 2], right_types=[1, 2], reco_hist=1)
+#     covisit18 = covisit18.load_candidates_file(max_rank=20)
+
+#     candidates = candidates.join(
+#         covisit18, on=['session', 'aid'], how='outer')
+#     del covisit18
+
+#     covisit19 = CovisitMaster(fold=fold, name='covisit19', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 17, 2: 42},
+#                               days_back=7, before_time=-24 * 60 * 60, after_time= 7 * 24 * 60 * 60, left_types=[1], right_types=[1], time_weight_coef=0.15, session_hist=24, reco_hist=1)
+#     covisit19 = covisit19.load_candidates_file(max_rank=20)
+
+#     candidates = candidates.join(
+#         covisit19, on=['session', 'aid'], how='outer')
+#     del covisit19
+
     tg_covisit1 = TimeGroupCovisitMaster(fold=fold, name='tg_covisit1', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
                                          days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[0, 1, 2])
     tg_covisit1 = tg_covisit1.load_candidates_file(max_rank=20)
@@ -213,6 +305,14 @@ def generate_candidates(fold, config):
         tg_covisit1, on=['session', 'aid'], how='outer')
     del tg_covisit1
 
+    cleora_cands = CleoraCands(
+        fold=fold, name='cleora_emde', data_path='../data/')
+    cleora_cands = cleora_cands.load_candidates_file(max_rank=30)
+
+    candidates = candidates.join(
+        cleora_cands, on=['session', 'aid'], how='outer')
+    del cleora_cands
+
     candidates = candidates.fill_null(999)
 
     cands_cols = candidates.columns
@@ -220,6 +320,7 @@ def generate_candidates(fold, config):
     cands_cols.remove('session')
 
     candidates = candidates.with_columns(pl.col(cands_cols).cast(pl.UInt16))
+    print('candidates shape', candidates.shape)
 
     return candidates
 
@@ -274,6 +375,16 @@ class RecentEvents(CandiadateGen):
         df = df.with_column(pl.lit(self.name).alias('name')).collect()
         df.write_parquet(
             f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+
+
+class CleoraCands(CandiadateGen):
+    def __init__(self, fold, name, data_path, reverse=False):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.reverse = reverse
+
+    def prepare_candidates(self):
+        pass
 
 
 class CandsFromSubmission(CandiadateGen):
@@ -690,4 +801,122 @@ class TimeGroupCovisitMaster(CandiadateGen):
             return reco
         else:
             reco.write_parquet(
+                f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+
+
+class Session2Session(CandiadateGen):
+
+    def __init__(self, fold, name, data_path, max_cands, type_weight, days_back, types, session_hist=30):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.max_cands = max_cands
+        self.maxs = {'': 1662328791,
+                     'valid3__': 1661723998,
+                     'valid2__': 1661119195,
+                     'valid1__': 1660514389}
+
+        self.type_weight = type_weight
+        self.days_back = days_back
+        self.session_hist = session_hist
+        self.types = types
+
+    def prepare_candidates(self, return_df=False):
+        max_ts = self.maxs[self.fold]
+        min_ts = max_ts - (24 * 60 * 60 * self.days_back)
+
+        df = pl.read_parquet(
+            f'../data/raw/{self.fold}test.parquet')
+        df1 = pl.read_parquet(
+            f'../data/raw/{self.fold}train.parquet')
+        df = pl.concat([df, df1])
+        del df1
+
+        df = df.filter(pl.col('ts') >= min_ts)
+
+        df = df.filter(pl.col('type').is_in(self.types))
+        df = df.sort(by=['session', 'ts'], reverse=[False, True])
+        df = df.with_column(
+            pl.col('session').cumcount().over('session').alias('n'))
+        df = df.filter(pl.col('n') < self.session_hist).drop('n')
+        df = df.drop('ts')
+        df2 = df.join(df, on='aid')
+        df2 = df2.drop('type_right')
+        df = df2.join(df, left_on='session_right', right_on='session')
+        del df2
+        df = df.with_column(pl.col('type_right').apply(
+            lambda x: self.type_weight[x]).alias('wgt'))
+        df = df.groupby(pl.col(['session', 'aid_right'])).agg(pl.sum('wgt'))
+        df = df.sort(by=['session', 'wgt'], reverse=[False, True])
+        df = df.with_column(
+            pl.col('session').cumcount().over('session').alias('rank'))
+        df = df.filter(pl.col('rank') < self.max_cands).drop('wgt')
+        df.columns = ['session', 'aid', self.name]
+
+        if return_df:
+            return df
+        else:
+            df.write_parquet(
+                f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+
+
+class W2VMaster(CandiadateGen):
+
+    def __init__(self, fold, name, data_path, max_cands, session_hist=10):
+        super().__init__(fold=fold, name=name, data_path=data_path)
+        self.fold = fold
+        self.name = name
+        self.data_path = data_path
+        self.max_cands = max_cands
+        self.session_hist = session_hist
+
+    def prepare_candidates(self, return_df=False):
+
+        model = Word2Vec.load(f'{self.data_path}raw/{self.fold}word2vec.model')
+        vocab = list(set([int(i) for i in model.wv.key_to_index.keys()]))
+        df = pl.read_parquet(f'{self.data_path}raw/{self.fold}test.parquet')
+        df = df.unique(subset=['session', 'aid'], keep='last')
+        df = df.filter(pl.col('aid').is_in(vocab))
+        df = df.with_column(pl.col('session').cumcount(
+            reverse=True).over('session').alias('rank'))
+        df = df.filter(pl.col('rank') < self.session_hist)
+        df = df.with_column((0.9 ** pl.col('rank')).alias('wgt'))
+        df = df.drop(['ts', 'type', 'rank'])
+        session = df.groupby('session').agg(
+            pl.col('wgt').sum().alias('wgt_sum'))
+        df = df.join(session, on='session')
+        del session
+        df = df.with_column(pl.col('wgt') / pl.col('wgt_sum')).drop('wgt_sum')
+        df_w2v = pl.DataFrame(model.wv.vectors)
+        df_w2v = df_w2v.select(pl.col('*').cast(pl.Float32))
+        aids = pl.DataFrame(
+            [int(i) for i in model.wv.key_to_index.keys()], columns=['aid'])
+        df_w2v = pl.concat([aids, df_w2v], how='horizontal')
+        df_w2v = df_w2v.with_column(pl.col('aid').cast(pl.Int32))
+        df = df.join(df_w2v, on='aid')
+        df = df.with_columns(
+            pl.col([f'column_{i}' for i in range(100)]) / pl.col('wgt'))
+        df = df.drop(['aid', 'wgt'])
+        df = df.groupby('session').sum()
+        annoy_index = AnnoyIndexer(model, 100)
+        df = df.to_pandas()
+        df.set_index('session', inplace=True)
+        recos = []
+        sessions = []
+        ranks = []
+        rank = [i for i in range(self.max_cands)]
+        n = df.shape[0]
+        for sess, vec in tqdm(df.iloc[:n, :].iterrows(), total=n):
+            recos.extend([int(i[0]) for i in model.wv.most_similar(
+                [vec.values], topn=self.max_cands, indexer=annoy_index)])
+            sessions.extend([sess] * self.max_cands)
+            ranks.extend(rank)
+
+        df = pl.DataFrame([sessions, recos, ranks], columns=[
+                          'session', 'aid', self.name])
+        df = df.select(pl.col('*').cast(pl.Int32))
+
+        if return_df:
+            return df
+        else:
+            df.write_parquet(
                 f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
