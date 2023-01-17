@@ -70,24 +70,68 @@ def generate_candidates(fold, config):
     del mf1_orders
 
     w2v_window09 = W2VReco(
-        fold, 'w2v_window09', config.data_path, '09', 30)
-    w2v_window09 = w2v_window09.load_candidates_file(max_rank=5)
+        fold, 'w2v_window09_mean', config.data_path, '09', 30)
+    w2v_window09 = w2v_window09.load_candidates_file_w2v(max_rank=5*2, sim='mean')
 
     candidates = candidates.join(
         w2v_window09, on=['session', 'aid'], how='outer')
     del w2v_window09
 
     w2v_window01 = W2VReco(
-        fold, 'w2v_window01', config.data_path, '01', 30)
-    w2v_window01 = w2v_window01.load_candidates_file(max_rank=5)
+        fold, 'w2v_window01_mean', config.data_path, '01', 30)
+    w2v_window01 = w2v_window01.load_candidates_file_w2v(max_rank=5*2, sim='mean')
 
     candidates = candidates.join(
         w2v_window01, on=['session', 'aid'], how='outer')
     del w2v_window01
 
     w2v_window35 = W2VReco(
-        fold, 'w2v_window35', config.data_path, '35', 30)
-    w2v_window35 = w2v_window35.load_candidates_file(max_rank=5)
+        fold, 'w2v_window35_mean', config.data_path, '35', 30)
+    w2v_window35 = w2v_window35.load_candidates_file_w2v(max_rank=5*2, sim='mean')
+
+    
+    
+    w2v_window09 = W2VReco(
+        fold, 'w2v_window09_max', config.data_path, '09', 30)
+    w2v_window09 = w2v_window09.load_candidates_file_w2v(max_rank=5*2, sim='max')
+
+    candidates = candidates.join(
+        w2v_window09, on=['session', 'aid'], how='outer')
+    del w2v_window09
+
+    w2v_window01 = W2VReco(
+        fold, 'w2v_window01_max', config.data_path, '01', 30)
+    w2v_window01 = w2v_window01.load_candidates_file_w2v(max_rank=5*2, sim='max')
+
+    candidates = candidates.join(
+        w2v_window01, on=['session', 'aid'], how='outer')
+    del w2v_window01
+
+    w2v_window35 = W2VReco(
+        fold, 'w2v_window35_max', config.data_path, '35', 30)
+    w2v_window35 = w2v_window35.load_candidates_file_w2v(max_rank=5*2, sim='max')
+    
+
+    
+    w2v_window09 = W2VReco(
+        fold, 'w2v_window09_sum', config.data_path, '09', 30)
+    w2v_window09 = w2v_window09.load_candidates_file_w2v(max_rank=5*2, sim='sum')
+
+    candidates = candidates.join(
+        w2v_window09, on=['session', 'aid'], how='outer')
+    del w2v_window09
+
+    w2v_window01 = W2VReco(
+        fold, 'w2v_window01_sum', config.data_path, '01', 30)
+    w2v_window01 = w2v_window01.load_candidates_file_w2v(max_rank=5*2, sim='sum')
+
+    candidates = candidates.join(
+        w2v_window01, on=['session', 'aid'], how='outer')
+    del w2v_window01
+
+    w2v_window35 = W2VReco(
+        fold, 'w2v_window35_sum', config.data_path, '35', 30)
+    w2v_window35 = w2v_window35.load_candidates_file_w2v(max_rank=5*2, sim='sum')
 
     candidates = candidates.join(
         w2v_window35, on=['session', 'aid'], how='outer')
@@ -180,7 +224,7 @@ class CandiadateGen():
 
     def load_candidates_file(self, max_rank=None):
         candidate_file = Path(
-            f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+            f'{self.data_path}{self.fold}{self.name}.parquet')
         if not candidate_file.is_file():
             print(f'preparing candidates {self.fold}{self.name}')
             self.prepare_candidates()
@@ -189,7 +233,21 @@ class CandiadateGen():
             return self.filter(df, max_rank)
         else:
             return df
-
+    def load_candidates_file_w2v(self, max_rank=None,sim='mean'):
+        candidate_file = Path(
+            f'{self.data_path}{self.fold}{self.name}.parquet')
+        
+        if not candidate_file.is_file():
+            print(f'preparing candidates {self.fold}{self.name}')
+            
+        self.prepare_candidates(sim)
+    
+        print(candidate_file)
+        df = pl.read_parquet(candidate_file.as_posix())
+        if max_rank:
+            return self.filter(df, max_rank)
+        else:
+            return df
 
 class RecentEvents(CandiadateGen):
 
@@ -200,7 +258,7 @@ class RecentEvents(CandiadateGen):
 
     def prepare_candidates(self):
         df = pl.read_parquet(
-            f'{self.data_path}raw/{self.fold}test.parquet').lazy()
+            f'{self.data_path}{self.fold}test.parquet').lazy()
         df = df.filter(pl.col('type') == self.event_type)
         df = df.sort(by='ts', reverse=True)
         df = df.select(pl.col(['session', 'aid']))
@@ -209,7 +267,7 @@ class RecentEvents(CandiadateGen):
             'aid').cumcount().over("session").alias('rank')])
         df = df.with_column(pl.lit(self.name).alias('name')).collect()
         df.write_parquet(
-            f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+            f'{self.data_path}{self.fold}{self.name}.parquet')
 
 
 class CandsFromSubmission(CandiadateGen):
@@ -223,7 +281,7 @@ class CandsFromSubmission(CandiadateGen):
 
     def prepare_candidates(self):
         df = pl.read_csv(
-            f'{self.data_path}raw/{self.fold}{self.base_file_name}.csv').lazy()
+            f'{self.data_path}{self.fold}{self.base_file_name}.csv').lazy()
         df = df.with_column(pl.col('labels').apply(
             lambda x: [int(i) for i in x.split()]).alias('candidates'))
         df = df.with_column(pl.col('session_type').str.split(
@@ -242,7 +300,7 @@ class CandsFromSubmission(CandiadateGen):
         df = df.select(
             [pl.col('session').cast(pl.Int32), pl.col('candidates').cast(pl.Int32).alias('aid'), pl.col(self.name).cast(pl.Int32)]).collect()
         df.write_parquet(
-            f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+            f'{self.data_path}{self.fold}{self.name}.parquet')
 
 
 class W2VReco(CandiadateGen):
@@ -252,11 +310,11 @@ class W2VReco(CandiadateGen):
         self.window_str = window_str
         self.max_cands = max_cands
 
-    def prepare_candidates(self):
+    def prepare_candidates(self,sim):
         df = pl.read_parquet(
-            f'{self.data_path}raw/{self.fold}test.parquet').lazy()
+            f'{self.data_path}{self.fold}test.parquet').lazy()
         model = Word2Vec.load(
-            f'{self.data_path}raw/word2vec_w{self.window_str}.model')
+            f'{self.data_path}word2vec_w{self.window_str}.model')
 
         df = df.unique(subset=['session'], keep='last')
         df = df.with_column((pl.col('aid').cast(
@@ -269,20 +327,24 @@ class W2VReco(CandiadateGen):
         annoy_index = AnnoyIndexer(model, 100)
         cands = []
         for aid_str in tqdm(df.select(pl.col('aid_str').unique()).to_dict()['aid_str']):
-            cands.append(self.get_w2v_reco(aid_str, model, annoy_index))
+            cands.append(self.get_w2v_reco(aid_str, model, annoy_index, sim))
         cands = pl.concat(cands)
         df = df.join(cands, on='aid_str').drop('aid_str')
         df = df.select(pl.col('*').cast(pl.Int32))
         df.write_parquet(
-            f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+            f'{self.data_path}{self.fold}{self.name}.parquet')
 
-    def get_w2v_reco(self, aid_str, model, indexer):
+    def get_w2v_reco(self, aid_str, model, indexer, sim):
         cands = []
         rank_clicks = 0
         rank_carts = 0
         rank_orders = 0
-
-        recos = model.wv.most_similar(aid_str, topn=200, indexer=indexer)
+        if sim == 'mean':
+            recos = model.wv.most_similar(aid_str, topn=200, indexer=indexer)
+        if sim == 'sum':
+            recos = model.wv.most_similar_sum(aid_str, topn=200, indexer=indexer)
+        if sim == 'max':
+            recos = model.wv.most_similar_max(aid_str, topn=200, indexer=indexer)
         for reco in recos:
             if len(reco[0]) > 1:
                 if reco[0][-1] == '0' and rank_clicks < self.max_cands:
@@ -347,9 +409,9 @@ class Covisit(CandiadateGen):
         min_ts = max_ts - (24 * 60 * 60 * self.days_back)
 
         df1 = pl.scan_parquet(
-            f'{self.data_path}raw/{self.fold}test.parquet')
+            f'{self.data_path}{self.fold}test.parquet')
         df = pl.scan_parquet(
-            f'{self.data_path}raw/{self.fold}train.parquet')
+            f'{self.data_path}{self.fold}train.parquet')
         df = pl.concat([df, df1])
         del df1
 
@@ -381,7 +443,7 @@ class Covisit(CandiadateGen):
         df = df.collect()
 
         reco = pl.read_parquet(
-            f'{self.data_path}raw/{self.fold}test.parquet')
+            f'{self.data_path}{self.fold}test.parquet')
         reco = reco.sort(by=['session', 'ts'], reverse=[False, True])
         reco = reco.with_column(
             pl.col('session').cumcount().over('session').alias('n'))
@@ -395,7 +457,7 @@ class Covisit(CandiadateGen):
         reco.columns = ['session', 'aid', self.name]
 
         reco.write_parquet(
-            f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+            f'{self.data_path}{self.fold}{self.name}.parquet')
 
 
 class CovisitMaster(CandiadateGen):
@@ -427,9 +489,9 @@ class CovisitMaster(CandiadateGen):
         min_ts = max_ts - (24 * 60 * 60 * self.days_back)
 
         df = pl.read_parquet(
-            f'../data/raw/{self.fold}test.parquet')
+            f'../data/{self.fold}test.parquet')
         df1 = pl.read_parquet(
-            f'../data/raw/{self.fold}train.parquet')
+            f'../data/{self.fold}train.parquet')
         df = pl.concat([df, df1])
         del df1
 
@@ -474,7 +536,7 @@ class CovisitMaster(CandiadateGen):
                 pl.col('wgt') / pl.col('wgt_sum')).drop('wgt_sum')
         df = df.filter(pl.col('n') < self.max_cands).drop('n')
         reco = pl.read_parquet(
-            f'../data/raw/{self.fold}test.parquet')
+            f'../data/{self.fold}test.parquet')
 
         if self.weekdays is not None:
             reco = reco.with_columns(
@@ -506,7 +568,7 @@ class CovisitMaster(CandiadateGen):
             return reco
         else:
             reco.write_parquet(
-                f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+                f'{self.data_path}{self.fold}{self.name}.parquet')
 
 
 class TimeGroupCovisitMaster(CandiadateGen):
@@ -536,9 +598,9 @@ class TimeGroupCovisitMaster(CandiadateGen):
         min_ts = max_ts - (24 * 60 * 60 * self.days_back)
 
         df = pl.read_parquet(
-            f'../data/raw/{self.fold}test.parquet')
+            f'../data/{self.fold}test.parquet')
         df1 = pl.read_parquet(
-            f'../data/raw/{self.fold}train.parquet')
+            f'../data/{self.fold}train.parquet')
         df = pl.concat([df, df1])
         del df1
 
@@ -584,7 +646,7 @@ class TimeGroupCovisitMaster(CandiadateGen):
                 pl.col('wgt') / pl.col('wgt_sum')).drop('wgt_sum')
         df = df.filter(pl.col('n') < self.max_cands).drop('n')
         reco = pl.read_parquet(
-            f'../data/raw/{self.fold}test.parquet')
+            f'../data/{self.fold}test.parquet')
 
         reco = reco.with_columns(
             (pl.col('ts').cast(pl.Int64) *
@@ -619,4 +681,4 @@ class TimeGroupCovisitMaster(CandiadateGen):
             return reco
         else:
             reco.write_parquet(
-                f'{self.data_path}candidates/{self.fold}{self.name}.parquet')
+                f'{self.data_path}{self.fold}{self.name}.parquet')

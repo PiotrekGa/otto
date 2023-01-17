@@ -30,15 +30,35 @@ class CONFIG:
         'mf1_clicks',
         'mf1_carts',
         'mf1_orders',
-        'w2v_09_clicks',
-        'w2v_09_carts',
-        'w2v_09_orders',
-        'w2v_01_clicks',
-        'w2v_01_carts',
-        'w2v_01_orders',
-        'w2v_35_clicks',
-        'w2v_35_carts',
-        'w2v_35_orders',
+        'w2v_09_clicks_mean',
+        'w2v_09_carts_mean',
+        'w2v_09_orders_mean',
+        'w2v_01_clicks_mean',
+        'w2v_01_carts_mean',
+        'w2v_01_orders_mean',
+        'w2v_35_clicks_mean',
+        'w2v_35_carts_mean',
+        'w2v_35_orders_mean',
+        
+        'w2v_09_clicks_max',
+        'w2v_09_carts_max',
+        'w2v_09_orders_max',
+        'w2v_01_clicks_max',
+        'w2v_01_carts_max',
+        'w2v_01_orders_max',
+        'w2v_35_clicks_max',
+        'w2v_35_carts_max',
+        'w2v_35_orders_max',
+
+        'w2v_09_clicks_sum',
+        'w2v_09_carts_sum',
+        'w2v_09_orders_sum',
+        'w2v_01_clicks_sum',
+        'w2v_01_carts_sum',
+        'w2v_01_orders_sum',
+        'w2v_35_clicks_sum',
+        'w2v_35_carts_sum',
+        'w2v_35_orders_sum',    
         'civisit2',
         'civisit3',
         'civisit4',
@@ -71,21 +91,103 @@ class CONFIG:
         'aid_cnt',
         'aid_sess_cnt',
 
+        'aid_max_ts',
+        'aid_min_ts',
+        'aid_std_ts',
+        'aid_cnt',
+        'aid_sess_cnt',
+        'aid_mean_ts',
+        'aid_last_ts',
+        'aid_first_ts',
+        'aid_quantile025_ts',
+        'aid_quantile075_ts',
+        'aid_median_ts', 
+        "aid_abs_max_diff",
+        "aid_abs_min_diff",
+        "aid_abs_mean_diff",
+        "aid_abs_median_diff",
+        "aid_abs_sum_diff",
+        "aid_std_diff"
+        "aid_std_diff2",
+        "aid_std_diff3",
+        "aid_last_diff",
+        "aid_last_diff4",
+        "aid_last_diff7"
+
+
+
+        
         'aid_click_max_ts',
         'aid_click_min_ts',
+        'aid_click_std_ts',
         'aid_click_cnt',
         'aid_sess_click_cnt',
-
+        'aid_click_mean_ts',
+        'aid_click_last_ts',
+        'aid_click_first_ts',
+        'aid_click_quantile025_ts',
+        'aid_click_quantile075_ts',
+        'aid_click_median_ts',
+        "aid_click_abs_max_diff",
+        "aid_click_abs_min_diff",
+        "aid_click_abs_mean_diff",
+        "aid_click_abs_median_diff",
+        "aid_click_abs_sum_diff",
+        "aid_click_std_diff"
+        "aid_click_std_diff2",
+        "aid_click_std_diff3",
+        "aid_click_last_diff",
+        "aid_click_last_diff4",
+        "aid_click_last_diff7"
+        
+        
         'aid_cart_max_ts',
         'aid_cart_min_ts',
+        'aid_cart_std_ts',
         'aid_cart_cnt',
         'aid_sess_cart_cnt',
-
+        'aid_cart_mean_ts',
+        'aid_cart_last_ts',
+        'aid_cart_first_ts',
+        'aid_cart_quantile025_ts',
+        'aid_cart_quantile075_ts',
+        'aid_cart_median_ts',
+        "aid_cart_abs_max_diff",
+        "aid_cart_abs_min_diff",
+        "aid_cart_abs_mean_diff",
+        "aid_cart_abs_median_diff",
+        "aid_cart_abs_sum_diff",
+        "aid_cart_std_diff"
+        "aid_cart_std_diff2",
+        "aid_cart_std_diff3",
+        "aid_cart_last_diff",
+        "aid_cart_last_diff4",
+        "aid_cart_last_diff7",
+        
+        
+        
         'aid_order_max_ts',
         'aid_order_min_ts',
+        'aid_order_std_ts',
         'aid_order_cnt',
         'aid_sess_order_cnt',
-
+        'aid_order_mean_ts',
+        'aid_order_last_ts',
+        'aid_order_first_ts',
+        'aid_order_quantile025_ts',
+        'aid_order_quantile075_ts',
+        'aid_order_median_ts',
+        "aid_order_abs_max_diff",
+        "aid_order_abs_min_diff",
+        "aid_order_abs_mean_diff",
+        "aid_order_abs_median_diff",
+        "aid_order_abs_sum_diff",
+        "aid_order_std_diff"
+        "aid_order_std_diff2",
+        "aid_order_std_diff3",
+        "aid_order_last_diff",
+        "aid_order_last_diff4",
+        "aid_order_last_diff7",
         'click_to_cart',
         'click_to_order',
         'cart_to_order',
@@ -184,13 +286,13 @@ def main(config):
 
         if len(fold[1]) > 0:
             score = evaluate(
-                f'{config.data_path}raw/{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}.csv')
+                f'{config.data_path}{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}.csv')
             print(f"Scores: {score}")
             scores.append(score)
             gc.collect()
             if config.score_perfect:
                 score_perfect = evaluate(
-                    f'{config.data_path}raw/{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}_perfect.csv')
+                    f'{config.data_path}{fold[1]}test_labels.jsonl', f'{fold[1]}{config.submission_name}_perfect.csv')
                 print(f"Scores perfect: {score_perfect}")
                 scores_perfect.append(score_perfect)
                 gc.collect()
