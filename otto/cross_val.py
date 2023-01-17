@@ -86,10 +86,6 @@ class CONFIG:
         'order_last_weekday',
         'order_last_time_of_day',
 
-        'aid_max_ts',
-        'aid_min_ts',
-        'aid_cnt',
-        'aid_sess_cnt',
 
         'aid_max_ts',
         'aid_min_ts',
