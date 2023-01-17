@@ -88,28 +88,38 @@ def generate_candidates(fold, config):
     w2v_window35 = W2VReco(
         fold, 'w2v_window35_mean', config.data_path, '35', 30)
     w2v_window35 = w2v_window35.load_candidates_file_w2v(max_rank=5*2, sim='mean')
+    candidates = candidates.join(
+        w2v_window35, on=['session', 'aid'], how='outer')
+    del w2v_window35
 
     
     
-    w2v_window09 = W2VReco(
-        fold, 'w2v_window09_max', config.data_path, '09', 30)
-    w2v_window09 = w2v_window09.load_candidates_file_w2v(max_rank=5*2, sim='max')
-
+    w2v_window128 = W2VReco(
+        fold, 'w2v_window128_mean', config.data_path, '128', 30)
+    w2v_window128 = w2v_window128.load_candidates_file_w2v(max_rank=5*2, sim='mean')
     candidates = candidates.join(
-        w2v_window09, on=['session', 'aid'], how='outer')
-    del w2v_window09
+        w2v_window128, on=['session', 'aid'], how='outer')
+    del w2v_window128    
+    
+#     w2v_window09 = W2VReco(
+#         fold, 'w2v_window09_max', config.data_path, '09', 30)
+#     w2v_window09 = w2v_window09.load_candidates_file_w2v(max_rank=5*2, sim='max')
 
-    w2v_window01 = W2VReco(
-        fold, 'w2v_window01_max', config.data_path, '01', 30)
-    w2v_window01 = w2v_window01.load_candidates_file_w2v(max_rank=5*2, sim='max')
+#     candidates = candidates.join(
+#         w2v_window09, on=['session', 'aid'], how='outer')
+#     del w2v_window09
 
-    candidates = candidates.join(
-        w2v_window01, on=['session', 'aid'], how='outer')
-    del w2v_window01
+#     w2v_window01 = W2VReco(
+#         fold, 'w2v_window01_max', config.data_path, '01', 30)
+#     w2v_window01 = w2v_window01.load_candidates_file_w2v(max_rank=5*2, sim='max')
 
-    w2v_window35 = W2VReco(
-        fold, 'w2v_window35_max', config.data_path, '35', 30)
-    w2v_window35 = w2v_window35.load_candidates_file_w2v(max_rank=5*2, sim='max')
+#     candidates = candidates.join(
+#         w2v_window01, on=['session', 'aid'], how='outer')
+#     del w2v_window01
+
+#     w2v_window35 = W2VReco(
+#         fold, 'w2v_window35_max', config.data_path, '35', 30)
+#     w2v_window35 = w2v_window35.load_candidates_file_w2v(max_rank=5*2, sim='max')
     
 
     
@@ -137,6 +147,15 @@ def generate_candidates(fold, config):
         w2v_window35, on=['session', 'aid'], how='outer')
     del w2v_window35
 
+    w2v_window128 = W2VReco(
+        fold, 'w2v_window128_sum', config.data_path, '128', 30)
+    w2v_window128 = w2v_window128.load_candidates_file_w2v(max_rank=5*2, sim='sum')
+
+    candidates = candidates.join(
+        w2v_window128, on=['session', 'aid'], how='outer')
+    del w2v_window128
+    
+    
     covisit2 = Covisit(fold=fold, name='civisit2', data_path='../data/', max_cands=30, type_weight={0: 1, 1: 6, 2: 3},
                        days_back=14, before_time=0, after_time=24 * 60 * 60, )
     covisit2 = covisit2.load_candidates_file(max_rank=20)
