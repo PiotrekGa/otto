@@ -26,26 +26,34 @@ def add_labels(candidates, fold, config):
 
 def add_featues(candidates, fold, config):
 
+    print(0, candidates.shape)
+    candidates = candidates.groupby(['session', 'aid']).min()
+    print(0, candidates.shape)
+
+    # candidates.write_parquet(f'{fold}candidates_raw.parquet')
+
     feats_obj = LastInteraction(
         fold, 'session_feats', config.data_path)
     feats = feats_obj.load_feature_file()
     feats = candidates.join(feats, on=['session', 'aid'], how='left')
     feats = feats_obj.fill_null(feats)
+    print(1, feats.shape)
+    del candidates
 
-#     bprf = BPRFeatures(fold='valid3__', name='bpr_score', data_path='../data/', cart_weight=2, order_weight=3, agg_func='max', iterations=100,
-# days_of_train=7, learning_rate=.25, regularization=.0004, use_okapi=True, okapi_K1=2.7, okapi_B=.06, factors=512)
+    bprf = BPRFeatures(fold=fold, name='bpr_score', data_path='../data/', cart_weight=2, order_weight=3, agg_func='max', iterations=100,
+                       days_of_train=7, learning_rate=.25, regularization=.0004, use_okapi=True, okapi_K1=2.7, okapi_B=.06, factors=256)
 
-#     batch = 0
-#     batch_size = 10_000_000
-#     while batch * batch_size < feats.shape[0]:
-#         feats_batch = feats[batch * batch_size: (batch + 1) * batch_size]
-#         bpr_feat = bprf.prepare_features(feats_batch)
-#         batch += 1
-#     del feats_batch
+    batch = 0
+    batch_size = 10_000_000
+    while batch * batch_size < feats.shape[0]:
+        feats_batch = feats[batch * batch_size: (batch + 1) * batch_size]
+        bpr_feat = bprf.prepare_features(feats_batch)
+        batch += 1
+    del feats_batch
 
-#     feats = feats.join(bpr_feat, how='left', on=['session', 'aid'])
-#     feats = bprf.fill_null(feats)
-#     del bpr_feat, bprf
+    feats = feats.join(bpr_feat, how='left', on=['session', 'aid'])
+    feats = bprf.fill_null(feats)
+    del bpr_feat, bprf
 
     session_click_feats_obj = LastInteraction(
         fold, 'session_clicks_feats', config.data_path, 0)
@@ -54,6 +62,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(session_click_feats, how='left', on=['session', 'aid'])
     feats = session_click_feats_obj.fill_null(feats)
     del session_click_feats, session_click_feats_obj
+    print(2, feats.shape)
 
     session_carts_feats_obj = LastInteraction(
         fold, 'session_carts_feats', config.data_path, 1)
@@ -62,6 +71,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(session_carts_feats, how='left', on=['session', 'aid'])
     feats = session_carts_feats_obj.fill_null(feats)
     del session_carts_feats, session_carts_feats_obj
+    print(3, feats.shape)
 
     session_orders_feats_obj = LastInteraction(
         fold, 'session_orders_feats', config.data_path, 2)
@@ -70,6 +80,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(session_orders_feats, how='left', on=['session', 'aid'])
     feats = session_orders_feats_obj.fill_null(feats)
     del session_orders_feats, session_orders_feats_obj
+    print(4, feats.shape)
 
     feats = feats.with_column(((pl.col('cart_interaction_last_time') >= 0) & (
         pl.col('order_interaction_last_time') < 0)).alias('cart_without_order1'))
@@ -92,6 +103,7 @@ def add_featues(candidates, fold, config):
     feats = feats.with_column((pl.col('click_without_cart1') | pl.col('click_without_cart2')).alias(
         'click_without_cart')).drop(['click_without_cart1', 'click_without_cart2'])
 
+    print(5, feats.shape)
     aid_feats_obj = AidFeatures(
         data_path=config.data_path, fold=fold, name='aid_stats')
     aid_feats = aid_feats_obj.load_feature_file()
@@ -99,6 +111,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(aid_feats, how='left', on='aid')
     feats = aid_feats_obj.fill_null(feats)
     del aid_feats, aid_feats_obj
+    print(6, feats.shape)
 
     session_feats_obj = SessionFeatures(
         data_path=config.data_path, fold=fold, name='session_stats')
@@ -107,6 +120,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(session_feats, how='left', on='session')
     feats = session_feats_obj.fill_null(feats)
     del session_feats, session_feats_obj
+    print(7, feats.shape)
 
     session_clicks_feats_obj = SessionFeatures(
         data_path=config.data_path, fold=fold, name='session_clicks_stats', event_type=0)
@@ -115,6 +129,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(session_clicks_feats, how='left', on='session')
     feats = session_clicks_feats_obj.fill_null(feats)
     del session_clicks_feats, session_clicks_feats_obj
+    print(8, feats.shape)
 
     session_carts_feats_obj = SessionFeatures(
         data_path=config.data_path, fold=fold, name='session_carts_stats', event_type=1)
@@ -123,6 +138,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(session_carts_feats, how='left', on='session')
     feats = session_carts_feats_obj.fill_null(feats)
     del session_carts_feats, session_carts_feats_obj
+    print(9, feats.shape)
 
     session_orders_feats_obj = SessionFeatures(
         data_path=config.data_path, fold=fold, name='session_orders_stats', event_type=2)
@@ -131,6 +147,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(session_orders_feats, how='left', on='session')
     feats = session_orders_feats_obj.fill_null(feats)
     del session_orders_feats, session_orders_feats_obj
+    print(10, feats.shape)
 
     cvs1_obj = CovisitScore(fold=fold, name='covisit_score1', data_path=config.data_path, type_weight={0: 1, 1: 6, 2: 3},
                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[0, 1, 2], reco_hist=30)
@@ -140,6 +157,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(cvs1, how='left', on=['session', 'aid'])
     feats = cvs1_obj.fill_null(feats)
     del cvs1, cvs1_obj
+    print(11, feats.shape)
 
     cvs2_obj = CovisitScore(fold=fold, name='covisit_score2', data_path=config.data_path, type_weight={0: 1, 1: 6, 2: 3},
                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[0], reco_hist=30)
@@ -149,6 +167,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(cvs2, how='left', on=['session', 'aid'])
     feats = cvs2_obj.fill_null(feats)
     del cvs2, cvs2_obj
+    print(12, feats.shape)
 
     cvs3_obj = CovisitScore(fold=fold, name='covisit_score3', data_path=config.data_path, type_weight={0: 1, 1: 6, 2: 3},
                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[1], reco_hist=30)
@@ -158,6 +177,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(cvs3, how='left', on=['session', 'aid'])
     feats = cvs3_obj.fill_null(feats)
     del cvs3, cvs3_obj
+    print(13, feats.shape)
 
     cvs4_obj = CovisitScore(fold=fold, name='covisit_score4', data_path=config.data_path, type_weight={0: 1, 1: 6, 2: 3},
                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[0, 1, 2], right_types=[2], reco_hist=30)
@@ -167,6 +187,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(cvs4, how='left', on=['session', 'aid'])
     feats = cvs4_obj.fill_null(feats)
     del cvs4, cvs4_obj
+    print(14, feats.shape)
 
     cvs5_obj = CovisitScore(fold=fold, name='covisit_score5', data_path=config.data_path, type_weight={0: 1, 1: 6, 2: 3},
                             days_back=14, before_time=0, after_time=24 * 60 * 60, left_types=[1, 2], right_types=[1, 2], reco_hist=30)
@@ -176,6 +197,7 @@ def add_featues(candidates, fold, config):
     feats = feats.join(cvs5, how='left', on=['session', 'aid'])
     feats = cvs5_obj.fill_null(feats)
     del cvs5, cvs5_obj
+    print(15, feats.shape)
 
     feats = feats.with_column((pl.col(
         'aid_sess_cnt') / pl.col('session_session_aid_cnt_m')).alias('session_aid_pop_rel'))
@@ -186,7 +208,21 @@ def add_featues(candidates, fold, config):
     feats = feats.with_column((pl.col('aid_sess_order_cnt') /
                               pl.col('order_session_aid_cnt_m')).alias('order_aid_pop_rel'))
 
+    print(16, feats.shape)
+    test_set = pl.read_parquet(f'../data/raw/{fold}test.parquet')
+    test_set = test_set.select('aid').unique()
+    test_set = test_set.with_column(pl.lit(1).alias('aid_in_test_set'))
+
+    feats = feats.join(test_set, on='aid', how='left')
+    del test_set
+
+    feats = feats.with_column(pl.col('aid_in_test_set').fill_null(0))
+    print(17, feats.shape)
+
     print('FEATURES:\n', feats.columns)
+
+    # feats.write_parquet(f'{fold}feats_raw.parquet')
+
     return feats
 
 
@@ -244,9 +280,9 @@ class LastInteraction(Feature):
         df = df.with_columns(pl.col(['session', 'aid', f'{self.event_type_str}_interaction_cnt',
                                      f'{self.event_type_str}_interaction_last_time']))
         df = df.with_columns([
-            (pl.col('ts').cast(pl.Int64) *
+            ((pl.col('ts').cast(pl.Int64) + 7200) *
              1000000).cast(pl.Datetime).dt.weekday().alias(f'{self.event_type_str}_last_weekday'),
-            ((pl.col('ts').cast(pl.Int64) * 1000000).cast(pl.Datetime).dt.hour() /
+            (((pl.col('ts').cast(pl.Int64) + 7200) * 1000000).cast(pl.Datetime).dt.hour() /
              6).cast(pl.Int16).alias(f'{self.event_type_str}_last_time_of_day')
         ]).drop('ts')
 
@@ -430,14 +466,14 @@ class CovisitScore(Feature):
 
         if self.weekdays is not None:
             df = df.with_columns(
-                (pl.col('ts').cast(pl.Int64) *
+                ((pl.col('ts').cast(pl.Int64) + 7200) *
                  1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
             df = df.filter(pl.col('weekday').is_in(
                 self.weekdays)).drop('weekday')
 
         if self.dayparts is not None:
             df = df.with_columns((
-                (((pl.col('ts').cast(pl.Int64) *
+                ((((pl.col('ts').cast(pl.Int64) + 7200) *
                    1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
             df = df.filter(pl.col('daypart').is_in(
                 self.dayparts)).drop('daypart')
@@ -473,14 +509,14 @@ class CovisitScore(Feature):
 
         if self.weekdays is not None:
             reco = reco.with_columns(
-                (pl.col('ts').cast(pl.Int64) *
+                ((pl.col('ts').cast(pl.Int64) + 7200) *
                  1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
             reco = reco.filter(pl.col('weekday').is_in(
                 self.weekdays)).drop('weekday')
 
         if self.dayparts is not None:
             reco = reco.with_columns((
-                (((pl.col('ts').cast(pl.Int64) *
+                ((((pl.col('ts').cast(pl.Int64) + 7200) *
                    1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
             reco = reco.filter(pl.col('daypart').is_in(
                 self.dayparts)).drop('daypart')
@@ -538,6 +574,7 @@ class BPRFeatures(Feature):
     def fill_null(self, df):
         df = df.with_columns(
             pl.col(self.name).fill_null(-9))
+        return df
 
     def load_feature_file(self):
         raise (ValueError('use prepare_features method'))
@@ -604,8 +641,8 @@ class BPRFeatures(Feature):
             user_vec = np.vstack(user_vec)
             item_vec = np.vstack(item_vec)
             print('scoring')
-            distances = (user_vec * item_vec).sum(1) / np.sqrt((user_vec *
-                                                                user_vec).sum(1)) + np.sqrt((item_vec * item_vec).sum(1))
+            distances = (user_vec * item_vec).sum(1) / (np.sqrt((user_vec *
+                                                                 user_vec).sum(1)) * np.sqrt((item_vec * item_vec).sum(1)))
             distances = distances.tolist()
 
             feat_new = pl.DataFrame([sessions, aids, distances], columns=[

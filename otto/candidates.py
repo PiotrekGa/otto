@@ -619,14 +619,14 @@ class CovisitMaster(CandiadateGen):
 
         if self.weekdays is not None:
             df = df.with_columns(
-                (pl.col('ts').cast(pl.Int64) *
+                ((pl.col('ts').cast(pl.Int64) + 7200) *
                  1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
             df = df.filter(pl.col('weekday').is_in(
                 self.weekdays)).drop('weekday')
 
         if self.dayparts is not None:
             df = df.with_columns((
-                (((pl.col('ts').cast(pl.Int64) *
+                ((((pl.col('ts').cast(pl.Int64) + 7200) *
                    1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
             df = df.filter(pl.col('daypart').is_in(
                 self.dayparts)).drop('daypart')
@@ -660,14 +660,14 @@ class CovisitMaster(CandiadateGen):
 
         if self.weekdays is not None:
             reco = reco.with_columns(
-                (pl.col('ts').cast(pl.Int64) *
+                ((pl.col('ts').cast(pl.Int64) + 7200) *
                  1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
             reco = reco.filter(pl.col('weekday').is_in(
                 self.weekdays)).drop('weekday')
 
         if self.dayparts is not None:
             reco = reco.with_columns((
-                (((pl.col('ts').cast(pl.Int64) *
+                ((((pl.col('ts').cast(pl.Int64) + 7200) *
                    1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
             reco = reco.filter(pl.col('daypart').is_in(
                 self.dayparts)).drop('daypart')
@@ -727,11 +727,11 @@ class TimeGroupCovisitMaster(CandiadateGen):
         df = df.filter(pl.col('ts') >= min_ts)
 
         df = df.with_columns(
-            (pl.col('ts').cast(pl.Int64) *
+            ((pl.col('ts').cast(pl.Int64) + 7200) *
                 1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
 
         df = df.with_columns((
-            (((pl.col('ts').cast(pl.Int64) *
+            ((((pl.col('ts').cast(pl.Int64) + 7200) *
                1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
 
         df = df.with_column(
@@ -769,11 +769,11 @@ class TimeGroupCovisitMaster(CandiadateGen):
             f'../data/raw/{self.fold}test.parquet')
 
         reco = reco.with_columns(
-            (pl.col('ts').cast(pl.Int64) *
+            ((pl.col('ts').cast(pl.Int64) + 7200) *
                 1000000).cast(pl.Datetime).dt.weekday().alias('weekday'))
 
         reco = reco.with_columns((
-            (((pl.col('ts').cast(pl.Int64) *
+            ((((pl.col('ts').cast(pl.Int64) + 7200) *
                1000000).cast(pl.Datetime).dt.hour() + 2) / 6) % 4).cast(pl.UInt8).alias('daypart'))
 
         reco = reco.with_column(

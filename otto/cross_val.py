@@ -13,8 +13,8 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    # folds = [['valid2__', 'valid3__'], ['valid3__', '']]
-    folds = [['valid2__', 'valid3__']]
+    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
+    # folds = [['valid2__', 'x']]
 
     sample_size = None
     max_negative_candidates = 20
@@ -73,7 +73,7 @@ class CONFIG:
         # 'ses2ses4',
         # 'ses2ses5',
 
-        # 'bpr_score',
+        'bpr_score',
 
         'covisit_score1',
         'covisit_score2',
@@ -139,8 +139,9 @@ class CONFIG:
         'session_session_aid_cnt_m',
         'click_session_aid_cnt_m',
         'cart_session_aid_cnt_m',
-        'order_session_aid_cnt_m'
+        'order_session_aid_cnt_m',
 
+        'aid_in_test_set',
 
     ]
     model_param = {'objective': 'lambdarank',
@@ -245,4 +246,5 @@ if __name__ == '__main__':
     print(scores_perfect)
 
 # Scores: {'clicks': 0.54176313948243, 'carts': 0.42397258459119774, 'orders': 0.6596227143339606, 'total': 0.5771417179259787}
+# evaluating solution
 # Scores perfect: {'clicks': 0.6614316258987507, 'carts': 0.5287217035708923, 'orders': 0.7197021598237404, 'total': 0.656580969555387}
