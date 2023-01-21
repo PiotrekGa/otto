@@ -1,6 +1,7 @@
 import polars as pl
 import lightgbm as lgb
 import numpy as np
+import time
 
 
 def sample_candidates(candidates, train_column, config):
@@ -48,13 +49,18 @@ def train_rerank_model(candidates, train_column, config):
     train_dataset = lgb.Dataset(
         data=candidates, label=y, group=train_baskets)
     del candidates, y, train_baskets
+    start_time = time.time()
     model = lgb.train(train_set=train_dataset,
                       params=config.model_param)
+    print("model train time --- %s seconds ---" % (time.time() - start_time))
     return model
 
 
 def select_recommendations(candidates, event_type_str, model, config, k=20):
     print(f'scoring candidates {event_type_str}')
+
+    print(candidates.shape)
+    print(candidates.select(pl.col(['session', 'aid'])).unique().shape)
 
     batch_size = 100_000
     batch_num = 0

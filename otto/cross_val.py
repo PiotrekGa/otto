@@ -2,6 +2,7 @@ import gc
 import polars as pl
 from tqdm import tqdm
 from time import sleep
+import joblib
 
 from candidates import generate_candidates
 from features import add_labels, add_featues
@@ -13,8 +14,8 @@ class CONFIG:
     score_perfect = True
     data_path = '../data/'
     submission_name = 'submission'
-    folds = [['valid2__', 'valid3__'], ['valid3__', '']]
-    # folds = [['valid2__', 'x']]
+    # folds = [['valid2__', 'valid3__'], ['valid3__', '']]
+    folds = [['valid3__', '']]
 
     sample_size = None
     max_negative_candidates = 20
@@ -55,12 +56,12 @@ class CONFIG:
         'covisit13',
 
         # THESE ADD 0.009 for perfect CV
-        # 'covisit14',
-        # 'covisit15',
-        # 'covisit16',
-        # 'covisit17',
-        # 'covisit18',
-        # 'covisit19',
+        'covisit14',
+        'covisit15',
+        'covisit16',
+        'covisit17',
+        'covisit18',
+        'covisit19',
 
         'tg_covisit1',
 
@@ -69,9 +70,9 @@ class CONFIG:
 
         'cleora_emde',
 
-        # 'ses2ses3',
-        # 'ses2ses4',
-        # 'ses2ses5',
+        'ses2ses3',
+        'ses2ses4',
+        'ses2ses5',
 
         'bpr_score',
 
@@ -143,6 +144,23 @@ class CONFIG:
 
         'aid_in_test_set',
 
+        # adds 0.004 to perfect score
+        'leak_top_day_clicks',
+        'leak_top_day_clicks_cnt',
+        'leak_top_day_carts',
+        'leak_top_day_carts_cnt',
+        'leak_top_day_orders',
+        'leak_top_day_orders_cnt',
+
+        'leak_top_days_clicks',
+        'leak_top_days_clicks_cnt',
+        'leak_top_days_carts',
+        'leak_top_days_carts_cnt',
+        'leak_top_days_orders',
+        'leak_top_days_orders_cnt',
+
+        'bpr_cands',
+
     ]
     model_param = {'objective': 'lambdarank',
                    'lambdarank_truncation_level': 15,
@@ -165,12 +183,15 @@ def main(config):
 
         models = {}
         for target in ['y_clicks', 'y_carts', 'y_orders']:
+            # for target in ['y_orders']:
 
             candidates_target = sample_candidates(
                 candidates_train, target, config)
 
             candidates_target = add_featues(candidates_target, fold[0], config)
             gc.collect()
+            candidates_target.write_parquet(
+                f'{fold[0]}{target}_train_data.parquet')
             models[target] = train_rerank_model(
                 candidates_target, target, config)
             del candidates_target

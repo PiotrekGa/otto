@@ -44,7 +44,7 @@ def add_featues(candidates, fold, config):
                        days_of_train=7, learning_rate=.25, regularization=.0004, use_okapi=True, okapi_K1=2.7, okapi_B=.06, factors=256)
 
     batch = 0
-    batch_size = 10_000_000
+    batch_size = 50_000_000
     while batch * batch_size < feats.shape[0]:
         feats_batch = feats[batch * batch_size: (batch + 1) * batch_size]
         bpr_feat = bprf.prepare_features(feats_batch)
