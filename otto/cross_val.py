@@ -182,7 +182,6 @@ def main(config):
             gc.collect()
             candidates_target.write_parquet(
                 f'{fold[0]}{target}_train_data.parquet')
-            del candidates_target, candidates_train
             models[target] = train_rerank_model(
                 candidates_target, target, config)
             del candidates_target
