@@ -134,8 +134,6 @@ class CONFIG:
         'cart_session_aid_cnt_m',
         'order_session_aid_cnt_m',
 
-        'aid_in_test_set',
-
         'leak_top_day_clicks',
         'leak_top_day_clicks_cnt',
         'leak_top_day_carts',
