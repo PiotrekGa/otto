@@ -1,5 +1,7 @@
 import polars as pl
 import lightgbm as lgb
+from catboost import CatBoostRanker, Pool
+from copy import deepcopy
 import numpy as np
 import time
 
@@ -16,26 +18,33 @@ def sample_candidates(candidates, train_column, config):
 
     candidates = candidates.with_columns(
         pl.col(cols_to_float32).cast(pl.Float32))
-    candidates = candidates.sort(by='session')
-    non_neg = candidates.groupby('session').agg(
-        [pl.col(train_column).max().alias('is_positive'), pl.col(train_column).min().alias('is_negative')])
-    non_neg = non_neg.filter(pl.col('is_positive') > 0).filter(
-        pl.col('is_negative') == 0).select(pl.col('session'))
-    candidates = candidates.join(non_neg, on='session', how='inner')
-    del non_neg
-    candidates = candidates.sample(
-        frac=1., shuffle=True, seed=42)
 
-    candidates = candidates.with_column(
+    df = candidates.select(pl.col(['session', 'aid', train_column]))
+    df = df.sample(frac=1., shuffle=True, seed=42)
+    df = df.with_column(pl.col(train_column).cast(pl.Int32))
+    pos_cnt = df.groupby('session').agg(
+        pl.col(train_column).sum().alias('neg_cnt'))
+    pos_cnt = pos_cnt.with_column(
+        pl.col('neg_cnt') * config.max_negative_candidates)
+    df = df.join(pos_cnt, on='session')
+    del pos_cnt
+
+    df = df.with_column(
         pl.col('session').cumcount().over(['session', train_column]).alias('rank'))
-    candidates = candidates.filter((pl.col(train_column) == 1) | (
-        pl.col('rank') <= config.max_negative_candidates)).drop('rank')
+    df = df.filter((pl.col(train_column) == 1) | (
+        pl.col('rank') <= pl.col('neg_cnt'))).drop(['rank', 'neg_cnt', train_column])
+
+    candidates = candidates.join(df, on=['session', 'aid'])
+    del df
+
     return candidates
 
 
 def train_rerank_model(candidates, train_column, config):
 
     candidates = candidates.sort(by='session')
+    queries_train = candidates.select('session').to_numpy().ravel()
+
     train_baskets = candidates.groupby(['session']).agg(
         pl.col('aid').count().alias('basket'))
     train_baskets = train_baskets.select(pl.col('basket'))
@@ -45,24 +54,62 @@ def train_rerank_model(candidates, train_column, config):
     candidates = candidates.select(
         pl.col(config.features)).to_numpy()
 
-    print(f'training model {train_column}')
+    print(f'training lgbm model {train_column}')
     train_dataset = lgb.Dataset(
         data=candidates, label=y, group=train_baskets)
-    del candidates, y, train_baskets
     start_time = time.time()
-    model = lgb.train(train_set=train_dataset,
-                      params=config.model_param)
-    print("model train time --- %s seconds ---" % (time.time() - start_time))
-    return model
+    model1 = lgb.train(train_set=train_dataset,
+                       params=config.model_param)
+    print("model lgbm train time --- %s seconds ---" %
+          (time.time() - start_time))
 
 
-def select_recommendations(candidates, event_type_str, model, config, k=20):
+#     print(f'training catboost model {train_column}')
+#     train_pool = Pool(
+#         data=candidates,
+#         label=y,
+#         group_id=queries_train
+#     )
+#     del candidates, y, queries_train, train_baskets
+
+
+#     start_time = time.time()
+
+#     default_parameters = {
+#     'iterations': 1000,
+#     'verbose': False,
+#     'random_seed': 0,
+#     }
+
+#     parameters = {}
+
+#     def fit_model(loss_function, additional_params=None, train_pool=train_pool):
+#         parameters = deepcopy(default_parameters)
+#         parameters['loss_function'] = loss_function
+#         parameters['train_dir'] = loss_function
+
+#         if additional_params is not None:
+#             parameters.update(additional_params)
+
+#         model = CatBoostRanker(**parameters)
+#         model.fit(train_pool, plot=False, silent=True)
+
+#         return model
+
+#     model2 = fit_model('YetiRankPairwise', {'custom_metric': ['RecallAt:top=10']})
+
+#     print("model catboost train time --- %s seconds ---" % (time.time() - start_time))
+
+    return [model1]
+
+
+def select_recommendations(candidates, event_type_str, models, config, k=20):
     print(f'scoring candidates {event_type_str}')
 
     print(candidates.shape)
     print(candidates.select(pl.col(['session', 'aid'])).unique().shape)
 
-    batch_size = 100_000
+    batch_size = 1-00_000
     batch_num = 0
     sessions = candidates.select(pl.col('session').unique())
     sessions_cnt = sessions.shape[0]
@@ -76,7 +123,7 @@ def select_recommendations(candidates, event_type_str, model, config, k=20):
 
         x = batch_candidates.select(
             pl.col(config.features)).to_numpy().astype(np.float32)
-        scores = model.predict(x)
+        scores = np.vstack([model.predict(x) for model in models]).mean(0)
         batch_candidates_scored = batch_candidates.select(
             pl.col(['session', 'aid']))
         batch_candidates_scored = batch_candidates_scored.with_column(

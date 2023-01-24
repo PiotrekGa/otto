@@ -18,7 +18,7 @@ class CONFIG:
     folds = [['valid3__', '']]
 
     sample_size = None
-    max_negative_candidates = 20
+    max_negative_candidates = 50
 
     features = [
         'clicked_in_session',
@@ -54,14 +54,6 @@ class CONFIG:
         'covisit11',
         'covisit12',
         'covisit13',
-
-        # THESE ADD 0.009 for perfect CV
-        'covisit14',
-        'covisit15',
-        'covisit16',
-        'covisit17',
-        'covisit18',
-        'covisit19',
 
         'tg_covisit1',
 
@@ -144,7 +136,6 @@ class CONFIG:
 
         'aid_in_test_set',
 
-        # adds 0.004 to perfect score
         'leak_top_day_clicks',
         'leak_top_day_clicks_cnt',
         'leak_top_day_carts',
@@ -167,7 +158,7 @@ class CONFIG:
                    'verbose': -1,
                    'n_jobs': -1,
                    'boosting_type': 'dart',
-                   'num_boost_round': 500}
+                   'num_boost_round': 1}
 
 
 def main(config):
@@ -183,7 +174,6 @@ def main(config):
 
         models = {}
         for target in ['y_clicks', 'y_carts', 'y_orders']:
-            # for target in ['y_orders']:
 
             candidates_target = sample_candidates(
                 candidates_train, target, config)
@@ -192,6 +182,7 @@ def main(config):
             gc.collect()
             candidates_target.write_parquet(
                 f'{fold[0]}{target}_train_data.parquet')
+            del candidates_target, candidates_train
             models[target] = train_rerank_model(
                 candidates_target, target, config)
             del candidates_target
@@ -205,6 +196,8 @@ def main(config):
             candidates_valid = add_labels(candidates_valid, fold[1], config)
             gc.collect()
         candidates_valid = add_featues(candidates_valid, fold[1], config)
+
+        del candidates_valid
         gc.collect()
 
         reco_clicks = select_recommendations(

@@ -7,6 +7,8 @@ import numpy as np
 import scipy
 import joblib
 from tqdm import tqdm
+import gc
+from candidates import COMPUTE_BPR
 
 
 def add_labels(candidates, fold, config):
@@ -40,17 +42,23 @@ def add_featues(candidates, fold, config):
     print(1, feats.shape)
     del candidates
 
+    if COMPUTE_BPR:
+        feats = feats.select(pl.col(['session', 'aid']))
+
     bprf = BPRFeatures(fold=fold, name='bpr_score', data_path='../data/', cart_weight=2, order_weight=3, agg_func='max', iterations=100,
                        days_of_train=7, learning_rate=.25, regularization=.0004, use_okapi=True, okapi_K1=2.7, okapi_B=.06, factors=256)
 
     batch = 0
-    batch_size = 50_000_000
+    batch_size = 25_000_000_000
     while batch * batch_size < feats.shape[0]:
+        print('BPR score', batch)
         feats_batch = feats[batch * batch_size: (batch + 1) * batch_size]
         bpr_feat = bprf.prepare_features(feats_batch)
         batch += 1
+        gc.collect()
     del feats_batch
 
+    gc.collect()
     feats = feats.join(bpr_feat, how='left', on=['session', 'aid'])
     feats = bprf.fill_null(feats)
     del bpr_feat, bprf
@@ -209,20 +217,8 @@ def add_featues(candidates, fold, config):
                               pl.col('order_session_aid_cnt_m')).alias('order_aid_pop_rel'))
 
     print(16, feats.shape)
-    test_set = pl.read_parquet(f'../data/raw/{fold}test.parquet')
-    test_set = test_set.select('aid').unique()
-    test_set = test_set.with_column(pl.lit(1).alias('aid_in_test_set'))
-
-    feats = feats.join(test_set, on='aid', how='left')
-    del test_set
-
-    feats = feats.with_column(pl.col('aid_in_test_set').fill_null(0))
-    print(17, feats.shape)
 
     print('FEATURES:\n', feats.columns)
-
-    # feats.write_parquet(f'{fold}feats_raw.parquet')
-
     return feats
 
 
@@ -321,13 +317,27 @@ class AidFeatures(Feature):
         ts_max = df.select(pl.col('ts').max())[0, 0]
         ts_min = df.select(pl.col('ts').min())[0, 0]
 
+        aid_cnt_total = df.select('session').shape[0]
+        session_cnt_total = df.select('session').n_unique()
+
         aid_stats = df.groupby('aid').agg([
             pl.col('ts').max().alias('aid_max_ts'),
             pl.col('ts').min().alias('aid_min_ts'),
             pl.col('session').count().alias('aid_cnt'),
             pl.col('session').n_unique().alias('aid_sess_cnt')])
-        aid_stats = aid_stats.with_column(ts_max - pl.col('aid_max_ts'))
+        aid_stats = aid_stats.with_column(
+            (ts_max - pl.col('aid_max_ts')).alias('aid_max_ts'))
         aid_stats = aid_stats.with_column(pl.col('aid_min_ts') - ts_min)
+
+        aid_stats = aid_stats.with_column(
+            pl.col('aid_cnt') / aid_cnt_total * 100_000)
+        aid_stats = aid_stats.with_column(
+            pl.col('aid_sess_cnt') / session_cnt_total * 100_000)
+
+        aid_click_cnt_total = df.filter(
+            pl.col('type') == 0).select('session').shape[0]
+        session_click_cnt_total = df.filter(
+            pl.col('type') == 0).select('session').n_unique()
 
         aid_click_stats = df.filter(pl.col('type') == 0).groupby('aid').agg([
             pl.col('ts').max().alias('aid_click_max_ts'),
@@ -339,6 +349,18 @@ class AidFeatures(Feature):
         aid_click_stats = aid_click_stats.with_column(
             pl.col('aid_click_min_ts') - ts_min)
 
+        aid_click_stats = aid_click_stats.with_column(
+            pl.col('aid_click_cnt').alias('aid_click_cnt_raw'))
+        aid_click_stats = aid_click_stats.with_column(
+            pl.col('aid_click_cnt') / aid_click_cnt_total * 100_000)
+        aid_click_stats = aid_click_stats.with_column(
+            pl.col('aid_sess_click_cnt') / session_click_cnt_total * 100_000)
+
+        aid_cart_cnt_total = df.filter(
+            pl.col('type') == 1).select('session').shape[0]
+        session_cart_cnt_total = df.filter(
+            pl.col('type') == 1).select('session').n_unique()
+
         aid_cart_stats = df.filter(pl.col('type') == 1).groupby('aid').agg([
             pl.col('ts').max().alias('aid_cart_max_ts'),
             pl.col('ts').min().alias('aid_cart_min_ts'),
@@ -348,6 +370,20 @@ class AidFeatures(Feature):
             (pl.col('aid_cart_max_ts') - ts_max).abs())
         aid_cart_stats = aid_cart_stats.with_column(
             pl.col('aid_cart_min_ts') - ts_min)
+
+        aid_cart_stats = aid_cart_stats.with_column(
+            pl.col('aid_cart_cnt').alias('aid_cart_cnt_raw'))
+        aid_cart_stats = aid_cart_stats.with_column(
+            (pl.col('aid_cart_cnt') / aid_cart_cnt_total * 100_000))
+        aid_cart_stats = aid_cart_stats.with_column(
+            pl.col('aid_sess_cart_cnt') / session_cart_cnt_total * 100_000)
+
+        aid_cart_stats = aid_cart_stats.with_column(
+            pl.col('aid_cart_cnt').alias('aid_cart_cnt_raw'))
+        aid_order_cnt_total = df.filter(
+            pl.col('type') == 2).select('session').shape[0]
+        session_order_cnt_total = df.filter(
+            pl.col('type') == 2).select('session').n_unique()
 
         aid_order_stats = df.filter(pl.col('type') == 2).groupby('aid').agg([
             pl.col('ts').max().alias('aid_order_max_ts'),
@@ -359,28 +395,38 @@ class AidFeatures(Feature):
         aid_order_stats = aid_order_stats.with_column(
             pl.col('aid_order_min_ts') - ts_min)
 
+        aid_order_stats = aid_order_stats.with_column(
+            pl.col('aid_order_cnt').alias('aid_order_cnt_raw'))
+        aid_order_stats = aid_order_stats.with_column(
+            pl.col('aid_order_cnt') / aid_order_cnt_total * 100_000)
+        aid_order_stats = aid_order_stats.with_column(
+            pl.col('aid_sess_order_cnt') / session_order_cnt_total * 100_000)
+
         aid_stats = aid_stats.join(aid_click_stats, on='aid', how='left')
         aid_stats = aid_stats.join(aid_cart_stats, on='aid', how='left')
         aid_stats = aid_stats.join(aid_order_stats, on='aid', how='left')
 
         aid_stats = aid_stats.with_columns(
-            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_click_max_ts', 'aid_click_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
+            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_click_max_ts', 'aid_click_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(-999999))
         aid_stats = aid_stats.with_columns(
             pl.col(['aid_cnt', 'aid_click_cnt', 'aid_cart_cnt', 'aid_order_cnt', 'aid_sess_cnt', 'aid_sess_click_cnt', 'aid_sess_cart_cnt', 'aid_sess_order_cnt']).fill_null(0))
 
         aid_stats = aid_stats.with_column(
-            (pl.col('aid_cart_cnt') / pl.col('aid_click_cnt')).alias('click_to_cart'))
+            (pl.col('aid_cart_cnt_raw') / pl.col('aid_click_cnt_raw') * 100).alias('click_to_cart'))
         aid_stats = aid_stats.with_column(
-            (pl.col('aid_order_cnt') / pl.col('aid_click_cnt')).alias('click_to_order'))
+            (pl.col('aid_order_cnt_raw') / pl.col('aid_click_cnt_raw') * 100).alias('click_to_order'))
         aid_stats = aid_stats.with_column(
-            (pl.col('aid_order_cnt') / pl.col('aid_cart_cnt')).alias('cart_to_order'))
+            (pl.col('aid_order_cnt_raw') / pl.col('aid_cart_cnt_raw') * 100).alias('cart_to_order'))
+
+        aid_stats = aid_stats.drop(
+            ['aid_click_cnt_raw', 'aid_cart_cnt_raw', 'aid_order_cnt_raw'])
 
         aid_stats.write_parquet(
             f'{self.data_path}features/{self.fold}{self.name}.parquet')
 
     def fill_null(self, df):
         df = df.with_columns(
-            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_click_max_ts', 'aid_click_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(999999))
+            pl.col(['aid_max_ts', 'aid_min_ts', 'aid_click_max_ts', 'aid_click_min_ts', 'aid_cart_max_ts', 'aid_cart_min_ts', 'aid_order_max_ts', 'aid_order_min_ts']).fill_null(-999999))
         df = df.with_columns(
             pl.col(['aid_cnt', 'aid_click_cnt', 'aid_cart_cnt', 'aid_order_cnt', 'aid_sess_cnt', 'aid_sess_click_cnt', 'aid_sess_cart_cnt', 'aid_sess_order_cnt']).fill_null(0))
         df = df.with_columns(
@@ -647,6 +693,8 @@ class BPRFeatures(Feature):
 
             feat_new = pl.DataFrame([sessions, aids, distances], columns=[
                                     'session', 'aid', self.name])
+            del user_vec, item_vec, distances
+
             feat_new = feat_new.select([pl.col(['session', 'aid']).cast(
                 pl.Int32), pl.col(self.name).cast(pl.Float32)])
 
@@ -654,10 +702,13 @@ class BPRFeatures(Feature):
                 feat = pl.concat([feat, feat_new])
                 feat.write_parquet(
                     f'{self.data_path}features/{self.fold}{self.name}.parquet')
+                del feat_new
+                gc.collect()
                 return feat
             else:
                 feat_new.write_parquet(
                     f'{self.data_path}features/{self.fold}{self.name}.parquet')
+                gc.collect()
                 return feat_new
 
     def train_model(self):
