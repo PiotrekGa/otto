@@ -155,6 +155,7 @@ class CONFIG:
                    'lambdarank_truncation_level': 15,
                    'verbose': -1,
                    'n_jobs': -1,
+                   'num_leaves': 10,
                    'boosting_type': 'dart',
                    'num_boost_round': 1}
 
