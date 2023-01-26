@@ -70,76 +70,6 @@ def generate_candidates(fold, config):
     if COMPUTE_BPR:
         candidates = candidates.select(pl.col(['session', 'aid']))
 
-    bpr_reco = BPRReco(fold=fold, name='bpr_cands',
-                       data_path='../data/', max_cands=50)
-    bpr_reco = bpr_reco.load_candidates_file(max_rank=50)
-    candidates = candidates.join(
-        bpr_reco, on=['session', 'aid'], how='outer')
-    del bpr_reco
-
-    if COMPUTE_BPR:
-        candidates = candidates.select(pl.col(['session', 'aid']))
-
-    tl1 = TopLeak(fold=fold, event_type=0, name='leak_top_day_clicks',
-                  data_path='../data/', next_days=False, max_cands=50)
-    tl1 = tl1.load_candidates_file(max_rank=10)
-    candidates = candidates.join(
-        tl1, on=['session', 'aid'], how='outer')
-    del tl1
-
-    if COMPUTE_BPR:
-        candidates = candidates.select(pl.col(['session', 'aid']))
-
-    tl2 = TopLeak(fold=fold, event_type=1, name='leak_top_day_carts',
-                  data_path='../data/', next_days=False, max_cands=50)
-    tl2 = tl2.load_candidates_file(max_rank=10)
-    candidates = candidates.join(
-        tl2, on=['session', 'aid'], how='outer')
-    del tl2
-
-    if COMPUTE_BPR:
-        candidates = candidates.select(pl.col(['session', 'aid']))
-
-    tl3 = TopLeak(fold=fold, event_type=2, name='leak_top_day_orders',
-                  data_path='../data/', next_days=False, max_cands=50)
-    tl3 = tl3.load_candidates_file(max_rank=10)
-    candidates = candidates.join(
-        tl3, on=['session', 'aid'], how='outer')
-    del tl3
-
-    if COMPUTE_BPR:
-        candidates = candidates.select(pl.col(['session', 'aid']))
-
-    tl4 = TopLeak(fold=fold, event_type=0, name='leak_top_days_clicks',
-                  data_path='../data/', next_days=True, max_cands=50)
-    tl4 = tl4.load_candidates_file(max_rank=10)
-    candidates = candidates.join(
-        tl4, on=['session', 'aid'], how='outer')
-    del tl4
-
-    if COMPUTE_BPR:
-        candidates = candidates.select(pl.col(['session', 'aid']))
-
-    tl5 = TopLeak(fold=fold, event_type=1, name='leak_top_days_carts',
-                  data_path='../data/', next_days=True, max_cands=50)
-    tl5 = tl5.load_candidates_file(max_rank=10)
-    candidates = candidates.join(
-        tl5, on=['session', 'aid'], how='outer')
-    del tl5
-
-    if COMPUTE_BPR:
-        candidates = candidates.select(pl.col(['session', 'aid']))
-
-    tl6 = TopLeak(fold=fold, event_type=2, name='leak_top_days_orders',
-                  data_path='../data/', next_days=True, max_cands=50)
-    tl6 = tl6.load_candidates_file(max_rank=10)
-    candidates = candidates.join(
-        tl6, on=['session', 'aid'], how='outer')
-    del tl6
-
-    if COMPUTE_BPR:
-        candidates = candidates.select(pl.col(['session', 'aid']))
-
     print(1, candidates.shape)
 
     recbole_clicks = CandsFromSubmission(
@@ -439,10 +369,96 @@ def generate_candidates(fold, config):
 
     print(8, candidates.shape)
 
+    bpr_reco = BPRReco(fold=fold, name='bpr_cands',
+                       data_path='../data/', max_cands=50)
+    bpr_reco = bpr_reco.load_candidates_file(max_rank=50)
+    candidates = candidates.join(
+        bpr_reco, on=['session', 'aid'], how='outer')
+    del bpr_reco
+
+    print(9.1, candidates.shape)
+
     test_sessions = pl.read_parquet(f'../data/raw/{fold}test.parquet')
     test_sessions = test_sessions.select('session').unique()
     candidates = candidates.join(
         test_sessions, on='session', how='inner')
+
+    if COMPUTE_BPR:
+        candidates = candidates.select(pl.col(['session', 'aid']))
+
+    print(9.2, candidates.shape)
+
+    tl1 = TopLeak(fold=fold, event_type=0, name='leak_top_day_clicks',
+                  data_path='../data/', next_days=False, max_cands=50)
+    tl1 = tl1.load_candidates_file(max_rank=10)
+    candidates = candidates.join(
+        tl1, on=['session', 'aid'], how='outer')
+    del tl1
+
+    if COMPUTE_BPR:
+        candidates = candidates.select(pl.col(['session', 'aid']))
+
+    tl2 = TopLeak(fold=fold, event_type=1, name='leak_top_day_carts',
+                  data_path='../data/', next_days=False, max_cands=50)
+    tl2 = tl2.load_candidates_file(max_rank=10)
+    candidates = candidates.join(
+        tl2, on=['session', 'aid'], how='outer')
+    del tl2
+
+    if COMPUTE_BPR:
+        candidates = candidates.select(pl.col(['session', 'aid']))
+
+    print(10, candidates.shape)
+
+    tl3 = TopLeak(fold=fold, event_type=2, name='leak_top_day_orders',
+                  data_path='../data/', next_days=False, max_cands=50)
+    tl3 = tl3.load_candidates_file(max_rank=10)
+    candidates = candidates.join(
+        tl3, on=['session', 'aid'], how='outer')
+    del tl3
+
+    if COMPUTE_BPR:
+        candidates = candidates.select(pl.col(['session', 'aid']))
+
+    tl4 = TopLeak(fold=fold, event_type=0, name='leak_top_days_clicks',
+                  data_path='../data/', next_days=True, max_cands=50)
+    tl4 = tl4.load_candidates_file(max_rank=10)
+    candidates = candidates.join(
+        tl4, on=['session', 'aid'], how='outer')
+    del tl4
+
+    if COMPUTE_BPR:
+        candidates = candidates.select(pl.col(['session', 'aid']))
+
+    tl5 = TopLeak(fold=fold, event_type=1, name='leak_top_days_carts',
+                  data_path='../data/', next_days=True, max_cands=50)
+    tl5 = tl5.load_candidates_file(max_rank=10)
+    candidates = candidates.join(
+        tl5, on=['session', 'aid'], how='outer')
+    del tl5
+
+    if COMPUTE_BPR:
+        candidates = candidates.select(pl.col(['session', 'aid']))
+
+    print(11, candidates.shape)
+
+    tl6 = TopLeak(fold=fold, event_type=2, name='leak_top_days_orders',
+                  data_path='../data/', next_days=True, max_cands=50)
+    tl6 = tl6.load_candidates_file(max_rank=10)
+    candidates = candidates.join(
+        tl6, on=['session', 'aid'], how='outer')
+    del tl6
+
+    if COMPUTE_BPR:
+        candidates = candidates.select(pl.col(['session', 'aid']))
+
+    print(12, candidates.shape)
+
+    candidates = candidates.join(
+        test_sessions, on='session', how='inner')
+
+    del test_sessions
+    print(13, candidates.shape)
 
     candidates = candidates.fill_null(999)
 

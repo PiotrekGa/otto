@@ -155,9 +155,8 @@ class CONFIG:
                    'lambdarank_truncation_level': 15,
                    'verbose': -1,
                    'n_jobs': -1,
-                   'num_leaves': 10,
                    'boosting_type': 'dart',
-                   'num_boost_round': 1}
+                   'num_boost_round': 750}
 
 
 def main(config):
@@ -179,8 +178,9 @@ def main(config):
 
             candidates_target = add_featues(candidates_target, fold[0], config)
             gc.collect()
-            candidates_target.write_parquet(
-                f'{fold[0]}{target}_train_data.parquet')
+            if target == 'y_orders':
+                candidates_target.write_parquet(
+                    f'{fold[0]}{target}_train_data.parquet')
             models[target] = train_rerank_model(
                 candidates_target, target, config)
             del candidates_target
@@ -188,6 +188,10 @@ def main(config):
 
         del candidates_train
         gc.collect()
+
+        joblib.dump(models, 'models.pkl')
+        sleep(1)
+        models = joblib.load('models.pkl')
 
         candidates_valid = generate_candidates(fold[1], config)
         if len(fold[1]) > 0:
