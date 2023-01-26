@@ -195,7 +195,6 @@ def main(config):
             gc.collect()
         candidates_valid = add_featues(candidates_valid, fold[1], config)
 
-        del candidates_valid
         gc.collect()
 
         reco_clicks = select_recommendations(
