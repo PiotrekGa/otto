@@ -439,6 +439,11 @@ def generate_candidates(fold, config):
 
     print(8, candidates.shape)
 
+    test_sessions = pl.read_parquet(f'../data/raw/{fold}test.parquet')
+    test_sessions = test_sessions.select('session').unique()
+    candidates = candidates.join(
+        test_sessions, on='session', how='inner')
+
     candidates = candidates.fill_null(999)
 
     cands_cols = candidates.columns
