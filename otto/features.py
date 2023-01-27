@@ -305,7 +305,7 @@ class LastInteraction(Feature):
             f'{self.event_type_str}_interaction_max',
             f'{self.event_type_str}_ts_since_interaction'
             
-        ]))
+        ]))d
         
         df = df.with_columns([
             ((pl.col('ts').cast(pl.Int64) + 7200) *
