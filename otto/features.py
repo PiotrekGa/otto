@@ -220,8 +220,6 @@ def add_featues(candidates, fold, config):
 
     
     
-    
-    
     print('FEATURES:\n', feats.columns)
     return feats
 
@@ -267,28 +265,47 @@ class LastInteraction(Feature):
             df = df.filter(pl.col('type') == self.event_type)
         df = df.join(session_ts_max, on='session')
         df = df.with_column((pl.col('ts_max') - pl.col('ts')
-                             ).alias('ts_since_interaction'))
+                             ).alias(f'{self.event_type_str}_ts_since_interaction'))
 
         df = df.groupby(['session', 'aid']).agg([
             pl.col('ts').count().alias(
                 f'{self.event_type_str}_interaction_cnt'),
             pl.col('ts_since_interaction').min().alias(
                 f'{self.event_type_str}_interaction_last_time'),
-            pl.col('ts').max(),
-            
+            pl.col('ts').max().alias(f'{self.event_type_str}_interaction_max'),
+        ])
+        df = df.groupby(['session', 'aid']).agg([pl.col('aid').cumcount().alias(f'{self.event_type_str}_interaction_cumcount')])
+        
+        df = df.groupby(['session', 'aid']).agg([
+            pl.col(f'{self.event_type_str}_interaction_cumcount').min().alias(f'{self.event_type_str}_interaction_cumcount_min'),
+            pl.col(f'{self.event_type_str}_interaction_cumcount').max().alias(f'{self.event_type_str}_interaction_cumcount_max'),
             
         ])
-
-        df = df.with_columns(session_ts_max- data['ts'].alias('ts_diff'))
+        
+        
+        
+        df = df.with_columns(session_ts_max- data['ts'].alias(f'{self.event_type_str}_ts_diff'))
         df = df.with_columns(df.groupby(['session', 'aid']).agg([
-            pl.col('ts_diff').min()+1,
-            pl.col('type').last()
+            (pl.col('ts_diff').min()+1).log().alias(f'{self.event_type_str}_last_diff_log_ts'),
+            pl.col('type').last().alias(f'{self.event_type_str}_last_type')
                 ])  
 
         
-        df = df.with_columns(pl.col(['session', 'aid', f'{self.event_type_str}_interaction_cnt',
-                                     f'{self.event_type_str}_interaction_last_time']))
-        
+        df = df.with_columns(pl.col([
+            'session',
+            'aid', 
+            f'{self.event_type_str}_interaction_cnt',
+            f'{self.event_type_str}_interaction_last_time',
+            f'{self.event_type_str}_last_type',
+            f'{self.event_type_str}_last_diff_log_ts',
+            f'{self.event_type_str}_ts_diff',
+            f'{self.event_type_str}_interaction_cumcount_max',
+            f'{self.event_type_str}_interaction_cumcount_min',
+            f'{self.event_type_str}_interaction_cumcount',
+            f'{self.event_type_str}_interaction_max',
+            f'{self.event_type_str}_ts_since_interaction'
+            
+        ]))
         
         df = df.with_columns([
             ((pl.col('ts').cast(pl.Int64) + 7200) *
@@ -303,6 +320,20 @@ class LastInteraction(Feature):
             f'{self.data_path}features/{self.fold}{self.name}.parquet')
 
     def fill_null(self, df):
+        df = df.with_columns(
+            pl.col(f'{self.event_type_str}_interaction_last_time').fill_null(-1),
+            pl.col(f'{self.event_type_str}_interaction_max').fill_null(0),
+            pl.col(f'{self.event_type_str}_interaction_cumcount').fill_null(0),
+            pl.col(f'{self.event_type_str}_interaction_cumcount_min').fill_null(0),
+            pl.col(f'{self.event_type_str}_interaction_cumcount_max').fill_null(0),
+            pl.col(f'{self.event_type_str}_ts_diff').fill_null(0),
+            pl.col(f'{self.event_type_str}_last_type').fill_null(-1),
+            pl.col(f'{self.event_type_str}_last_diff_log_ts').fill_null(0),
+            
+            
+        )                 
+                             
+                             
         df = df.with_column(
             pl.col(f'{self.event_type_str}_interaction_cnt').fill_null(0))
         df = df.with_column(
