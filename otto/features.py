@@ -274,7 +274,7 @@ class LastInteraction(Feature):
                 f'{self.event_type_str}_interaction_last_time'),
             pl.col('ts').max().alias(f'{self.event_type_str}_interaction_max'),
         ])
-        df = df.groupby(['session', 'aid']).agg([pl.col('aid').cumcount().alias(f'{self.event_type_str}_interaction_cumcount')])
+        df = df.groupby(['session', 'aid']).agg([pl.col('aid').cumcount().alias(f'{self.event_type_str}_interaction_cumcount')]).explode(f'{self.event_type_str}_interaction_cumcount')
         
         df = df.groupby(['session', 'aid']).agg([
             pl.col(f'{self.event_type_str}_interaction_cumcount').min().alias(f'{self.event_type_str}_interaction_cumcount_min'),
